@@ -2,7 +2,7 @@
 from __future__ import absolute_import
 import numpy as np
 import backend.export as K
-from utils.generic_utils import get_from_module
+
 
 def get_fans(shape, dim_ordering='th',**kwargs):
     if len(shape) == 2:
@@ -182,7 +182,7 @@ def conv_orthogonal(shape,dim_ordering='th', name=None,symbolic=True, **kwargs):
     else:
       return this_data
 
-
+from utils.generic_utils import get_from_module
 def get(identifier, **kwargs):
     return get_from_module(identifier, globals(),
                            'initialization', kwargs=kwargs)

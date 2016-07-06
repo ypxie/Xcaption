@@ -138,7 +138,7 @@ def activity_l1l2(l1=0.01, l2=0.01):
     return ActivityRegularizer(l1=l1, l2=l2)
 
 
-from .utils.generic_utils import get_from_module
+from utils.generic_utils import get_from_module
 def get(identifier, kwargs=None):
     return get_from_module(identifier, globals(), 'regularizer',
                            instantiate=True, kwargs=kwargs)

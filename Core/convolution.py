@@ -1,12 +1,12 @@
 import backend.export as T
-from Core.common import npwrapper
+from backend.export import npwrapper
 
 from Core.utils_func import *
 import numpy as np
-from utils import activations, initializations, regularizers, constraints
+from utils import activations, initializations, regularizers
 
 
-def param_init_convlayer(options, params, input_shape, nb_filter, nb_row, nb_col,prefix='conv',
+def init_conv2dlayer(options, params, input_shape, nb_filter, nb_row, nb_col,prefix='conv',
 	             init='glorot_uniform',  weights=None, dim_ordering= 'th',
                  W_regularizer=None, b_regularizer=None, activity_regularizer=None,
                  W_constraint=None, b_constraint=None,bias=True, dilated = 0, 
@@ -100,3 +100,5 @@ def Resize2D(X,  destin_shape,dim_ordering='th',mask=None):
     result = T.spatial_2d_padding_4specify(X, padding = padding)
     #result = theano.printing.Print('Finish calculating resize')(result + 1)
     return result
+
+

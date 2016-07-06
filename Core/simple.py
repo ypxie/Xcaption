@@ -1,9 +1,9 @@
 import backend.export as T
 
-from Core.common import npwrapper
+from backend.export import npwrapper
 from Core.utils_func import *
 import numpy as np
-from utils import activations, initializations, regularizers, constraints
+from utils import activations, initializations, regularizers
 
 # dropout in theano
 def dropout_layer(state_before, use_noise, rng =None,p=0.5):
@@ -21,7 +21,7 @@ def dropout_layer(state_before, use_noise, rng =None,p=0.5):
     return proj
 
 # feedforward layer: affine transformation + point-wise nonlinearity
-def param_init_fflayer(options, params, prefix='ff', nin=None, nout=None,trainable=True,**kwargs):
+def init_fflayer(options, params, prefix='ff', nin=None, nout=None,trainable=True,**kwargs):
     if nin is None:
         nin = options['dim_proj']
     if nout is None:

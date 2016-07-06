@@ -1,6 +1,8 @@
 from __future__ import absolute_import
 import numpy as np
-from . import backend as K
+
+import backend.keras_backend as K
+
 
 
 def mean_squared_error(y_true, y_pred):
@@ -72,6 +74,6 @@ msle = MSLE = mean_squared_logarithmic_error
 kld = KLD = kullback_leibler_divergence
 cosine = cosine_proximity
 
-from .utils.generic_utils import get_from_module
+from utils.generic_utils import get_from_module
 def get(identifier):
     return get_from_module(identifier, globals(), 'objective')

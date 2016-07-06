@@ -2,14 +2,14 @@ import numpy as np
 import theano
 import backend.export as T
 
-from Core.common import npwrapper
+from backend.export import npwrapper
 from Core.utils_func import *
 
-from utils import activations, initializations, regularizers, constraints
+from utils import activations, initializations, regularizers
 
 # This function implements the lstm fprop
 # LSTM layer
-def param_init_lstm(options, params, prefix='lstm', nin=None, dim=None,trainable = True, **kwargs):
+def init_lstm(options, params, prefix='lstm', nin=None, dim=None,trainable = True, **kwargs):
     if nin is None:
         nin = options['dim_proj']
     if dim is None:
@@ -124,7 +124,7 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,droprate=
     return rval
 
 # Conditional LSTM layer with Attention
-def param_init_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=None, dimctx=None, trainable=True, **kwargs):
+def init_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=None, dimctx=None, trainable=True, **kwargs):
     if nin is None:
         nin = options['dim']
     if dim is None:
@@ -428,7 +428,7 @@ def lstm_cond_layer(tparams, state_below, options, prefix='lstm',mask=None,
                                     name=get_name(prefix, '_layers'),
                                     n_steps=nsteps, profile=False)
         return rval, updates
-def param_init_dynamic_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=None, dimctx=None, trainable=True, **kwargs):
+def init_dynamic_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=None, dimctx=None, trainable=True, **kwargs):
     #if nin is None:
     #    nin = options['dim']
     #if dim is None:

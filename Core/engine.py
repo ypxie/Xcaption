@@ -9,7 +9,6 @@ from Core.simple import *
 from Core.utils_func import *
 from Core.recurrent import *
 from Core.optimizers import adadelta, adam, rmsprop, sgd
-from Core.common import get_layer
 
 
 def init_params(options):
@@ -20,47 +19,45 @@ def init_params(options):
     lstm_cond_ndim = options['dim_word'] # originally, it accepts input from text.
     if options['lstm_encoder']: # potential feature that runs an LSTM over the annotation vectors
         # encoder: LSTM
-        params = get_layer('lstm')[0](options, params, prefix='encoder',
+        params = init_lstm(options, params, prefix='encoder',
                                       nin=options['dim_word'], dim=options['dim'], trainable = True)
-        params = get_layer('lstm')[0](options, params, prefix='encoder_rev',
+        params = init_lstm(options, params, prefix='encoder_rev',
                                       nin=options['dim_word'], dim=options['dim'], trainable = True)
         ctx_dim = options['dim'] * 2
         lstm_cond_ndim = options['dim']
     # init_state, init_cell: [top right on page 4]
     for lidx in xrange(1, options['n_layers_init']):
-        params = get_layer('ff')[0](options, params, prefix='ff_init_%d'%lidx, nin=ctx_dim, nout=ctx_dim, trainable = True)
-    params = get_layer('ff')[0](options, params, prefix='ff_state', nin=ctx_dim, nout=options['dim'], trainable = True)
-    params = get_layer('ff')[0](options, params, prefix='ff_memory', nin=ctx_dim, nout=options['dim'], trainable = True)
+        params = init_fflayer(options, params, prefix='ff_init_%d'%lidx, nin=ctx_dim, nout=ctx_dim, trainable = True)
+    params = init_fflayer(options, params, prefix='ff_state', nin=ctx_dim, nout=options['dim'], trainable = True)
+    params = init_fflayer(options, params, prefix='ff_memory', nin=ctx_dim, nout=options['dim'], trainable = True)
     # decoder: LSTM: [equation (1)/(2)/(3)]
-    params = get_layer('lstm_cond')[0](options, params, prefix='decoder',
+    params = init_dynamic_lstm_cond(options, params, prefix='decoder',
                                        nin=lstm_cond_ndim, dim=options['dim'],
                                        dimctx=ctx_dim, trainable = True)
     # potentially deep decoder (warning: should work but somewhat untested)
     if options['n_layers_lstm'] > 1:
         for lidx in xrange(1, options['n_layers_lstm']):
-            params = get_layer('ff')[0](options, params, prefix='ff_state_%d'%lidx, nin=options['dim'], nout=options['dim'], trainable = True)
-            params = get_layer('ff')[0](options, params, prefix='ff_memory_%d'%lidx, nin=options['dim'], nout=options['dim'], trainable = True)
-            params = get_layer('lstm_cond')[0](options, params, prefix='decoder_%d'%lidx,
+            params = init_fflayer(options, params, prefix='ff_state_%d'%lidx, nin=options['dim'], nout=options['dim'], trainable = True)
+            params = init_fflayer(options, params, prefix='ff_memory_%d'%lidx, nin=options['dim'], nout=options['dim'], trainable = True)
+            params = init_dynamic_lstm_cond(options, params, prefix='decoder_%d'%lidx,
                                                nin=options['dim'], dim=options['dim'],
                                                dimctx=ctx_dim, trainable = True)
     # readout: [equation (7)]
-    params = get_layer('ff')[0](options, params, prefix='ff_logit_lstm', nin=options['dim'], 
+    params = init_fflayer(options, params, prefix='ff_logit_lstm', nin=options['dim'], 
                                 nout=options['dim_word'], trainable = True)
     if options['ctx2out']:
-        params = get_layer('ff')[0](options, params, prefix='ff_logit_ctx', nin=ctx_dim, 
+        params = init_fflayer(options, params, prefix='ff_logit_ctx', nin=ctx_dim, 
                                     nout=options['dim_word'], trainable = True)
     if options['n_layers_out'] > 1:
         for lidx in xrange(1, options['n_layers_out']):
-            params = get_layer('ff')[0](options, params, prefix='ff_logit_h%d'%lidx, 
+            params = init_fflayer(options, params, prefix='ff_logit_h%d'%lidx, 
                                         nin=options['dim_word'], nout=options['dim_word'], trainable = True)
-    params = get_layer('ff')[0](options, params, prefix='ff_logit', nin=options['dim_word'], 
+    params = init_fflayer(options, params, prefix='ff_logit', nin=options['dim_word'], 
                                 nout=options['n_words'], trainable = True)
 
     return params
+     
 
-
-      
-# build a training model
 def build_model(tparams, options, sampling=True):
     """ Builds the entire computational graph used for training
 
@@ -134,9 +131,9 @@ def build_model(tparams, options, sampling=True):
     emb = emb_shifted
     if options['lstm_encoder']:
         # encoder
-        ctx_fwd = get_layer('lstm')[1](tparams, ctx.dimshuffle(1,0,2),
+        ctx_fwd = lstm_layer(tparams, ctx.dimshuffle(1,0,2),
                                        options, prefix='encoder')[0].dimshuffle(1,0,2)
-        ctx_rev = get_layer('lstm')[1](tparams, ctx.dimshuffle(1,0,2)[:,::-1,:],
+        ctx_rev = lstm_layer(tparams, ctx.dimshuffle(1,0,2)[:,::-1,:],
                                        options, prefix='encoder_rev')[0][:,::-1,:].dimshuffle(1,0,2)
         ctx0 = T.concatenate((ctx_fwd, ctx_rev), axis=2)
     else:
@@ -145,17 +142,17 @@ def build_model(tparams, options, sampling=True):
     # initial state/cell [top right on page 4]
     ctx_mean = ctx0.mean(1)
     for lidx in xrange(1, options['n_layers_init']):
-        ctx_mean = get_layer('ff')[1](tparams, ctx_mean, options,
+        ctx_mean = fflayer(tparams, ctx_mean, options,
                                       prefix='ff_init_%d'%lidx, activ='rectifier')
         if options['use_dropout']:
             ctx_mean = dropout_layer(ctx_mean, use_noise, rng = rng)
 
-    init_state = get_layer('ff')[1](tparams, ctx_mean, options, prefix='ff_state', activ='tanh')
-    init_memory = get_layer('ff')[1](tparams, ctx_mean, options, prefix='ff_memory', activ='tanh')
+    init_state = fflayer(tparams, ctx_mean, options, prefix='ff_state', activ='tanh')
+    init_memory = fflayer(tparams, ctx_mean, options, prefix='ff_memory', activ='tanh')
     # lstm decoder
     # [equation (1), (2), (3) in section 3.1.2]
     attn_updates = []
-    proj, updates = get_layer('lstm_cond')[1](tparams, emb, options,
+    proj, updates = dynamic_lstm_cond_layer(tparams, emb, options,
                                               prefix='decoder', mask=mask, context=ctx0,
                                               one_step=False,
                                               init_state=init_state,
@@ -168,9 +165,9 @@ def build_model(tparams, options, sampling=True):
     # optional deep attention
     if options['n_layers_lstm'] > 1:
         for lidx in xrange(1, options['n_layers_lstm']):
-            init_state = get_layer('ff')[1](tparams, ctx_mean, options, prefix='ff_state_%d'%lidx, activ='tanh')
-            init_memory = get_layer('ff')[1](tparams, ctx_mean, options, prefix='ff_memory_%d'%lidx, activ='tanh')
-            proj, updates = get_layer('lstm_cond')[1](tparams, proj_h, options,
+            init_state = fflayer(tparams, ctx_mean, options, prefix='ff_state_%d'%lidx, activ='tanh')
+            init_memory = fflayer(tparams, ctx_mean, options, prefix='ff_memory_%d'%lidx, activ='tanh')
+            proj, updates = dynamic_lstm_cond_layer(tparams, proj_h, options,
                                                       prefix='decoder_%d'%lidx,
                                                       mask=mask, context=ctx0,
                                                       one_step=False,
@@ -195,22 +192,22 @@ def build_model(tparams, options, sampling=True):
 
     # compute word probabilities
     # [equation (7)]
-    logit = get_layer('ff')[1](tparams, proj_h, options, prefix='ff_logit_lstm', activ='linear')
+    logit = fflayer(tparams, proj_h, options, prefix='ff_logit_lstm', activ='linear')
     if options['prev2out']:
         logit += emb
     if options['ctx2out']:
-        logit += get_layer('ff')[1](tparams, ctxs, options, prefix='ff_logit_ctx', activ='linear')
+        logit += fflayer(tparams, ctxs, options, prefix='ff_logit_ctx', activ='linear')
     logit = tanh(logit)
     if options['use_dropout']:
         logit = dropout_layer(logit, use_noise, rng=rng)
     if options['n_layers_out'] > 1:
         for lidx in xrange(1, options['n_layers_out']):
-            logit = get_layer('ff')[1](tparams, logit, options, prefix='ff_logit_h%d'%lidx, activ='rectifier')
+            logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activ='rectifier')
             if options['use_dropout']:
                 logit = dropout_layer(logit, use_noise, rng=rng)
 
     # compute softmax
-    logit = get_layer('ff')[1](tparams, logit, options, prefix='ff_logit', activ='linear')
+    logit = fflayer(tparams, logit, options, prefix='ff_logit', activ='linear')
     logit_shp = logit.shape
     probs = T.softmax(logit.reshape([logit_shp[0]*logit_shp[1], logit_shp[2]]))
 
@@ -232,6 +229,7 @@ def build_model(tparams, options, sampling=True):
 
     return rng, use_noise, [x, mask, ctx], alphas, alpha_sample, cost, opt_outs
 
+
 # build a sampler
 def build_sampler(tparams, options, use_noise, rng, sampling=True):
     """ Builds a sampler used for generating from the model
@@ -251,25 +249,25 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
     ctx = T.matrix('ctx_sampler', dtype='float32')
     if options['lstm_encoder']:
         # encoder
-        ctx_fwd = get_layer('lstm')[1](tparams, ctx,
+        ctx_fwd = lstm_layer(tparams, ctx,
                                        options, prefix='encoder')[0]
-        ctx_rev = get_layer('lstm')[1](tparams, ctx[::-1,:],
+        ctx_rev = lstm_layer(tparams, ctx[::-1,:],
                                        options, prefix='encoder_rev')[0][::-1,:]
         ctx = T.concatenate((ctx_fwd, ctx_rev), axis=1)
 
     # initial state/cell
     ctx_mean = ctx.mean(0)
     for lidx in xrange(1, options['n_layers_init']):
-        ctx_mean = get_layer('ff')[1](tparams, ctx_mean, options,
+        ctx_mean = fflayer(tparams, ctx_mean, options,
                                       prefix='ff_init_%d'%lidx, activ='rectifier')
         if options['use_dropout']:
             ctx_mean = dropout_layer(ctx_mean, use_noise, rng=rng)
-    init_state = [get_layer('ff')[1](tparams, ctx_mean, options, prefix='ff_state', activ='tanh')]
-    init_memory = [get_layer('ff')[1](tparams, ctx_mean, options, prefix='ff_memory', activ='tanh')]
+    init_state = [fflayer(tparams, ctx_mean, options, prefix='ff_state', activ='tanh')]
+    init_memory = [fflayer(tparams, ctx_mean, options, prefix='ff_memory', activ='tanh')]
     if options['n_layers_lstm'] > 1:
         for lidx in xrange(1, options['n_layers_lstm']):
-            init_state.append(get_layer('ff')[1](tparams, ctx_mean, options, prefix='ff_state_%d'%lidx, activ='tanh'))
-            init_memory.append(get_layer('ff')[1](tparams, ctx_mean, options, prefix='ff_memory_%d'%lidx, activ='tanh'))
+            init_state.append(fflayer(tparams, ctx_mean, options, prefix='ff_state_%d'%lidx, activ='tanh'))
+            init_memory.append(fflayer(tparams, ctx_mean, options, prefix='ff_memory_%d'%lidx, activ='tanh'))
 
     print 'Building f_init...',
     f_init = theano.function([ctx], [ctx]+init_state+init_memory, name='f_init', profile=False)
@@ -289,7 +287,7 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
     emb = T.switch(x[:,None] < 0, T.alloc(0., 1, tparams['Wemb'].shape[1]),
                         tparams['Wemb'][x])
 
-    proj = get_layer('lstm_cond')[1](tparams, emb, options,
+    proj = dynamic_lstm_cond_layer(tparams, emb, options,
                                      prefix='decoder',
                                      mask=None, context=ctx,
                                      one_step=True,
@@ -303,7 +301,7 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
     proj_h = proj[0]
     if options['n_layers_lstm'] > 1:
         for lidx in xrange(1, options['n_layers_lstm']):
-            proj = get_layer('lstm_cond')[1](tparams, proj_h, options,
+            proj = dynamic_lstm_cond_layer(tparams, proj_h, options,
                                              prefix='decoder_%d'%lidx,
                                              context=ctx,
                                              one_step=True,
@@ -321,20 +319,20 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
         proj_h = dropout_layer(proj[0], use_noise, rng=rng)
     else:
         proj_h = proj[0]
-    logit = get_layer('ff')[1](tparams, proj_h, options, prefix='ff_logit_lstm', activ='linear')
+    logit = fflayer(tparams, proj_h, options, prefix='ff_logit_lstm', activ='linear')
     if options['prev2out']:
         logit += emb
     if options['ctx2out']:
-        logit += get_layer('ff')[1](tparams, ctxs[-1], options, prefix='ff_logit_ctx', activ='linear')
+        logit += fflayer(tparams, ctxs[-1], options, prefix='ff_logit_ctx', activ='linear')
     logit = tanh(logit)
     if options['use_dropout']:
         logit = dropout_layer(logit, use_noise, rng=rng)
     if options['n_layers_out'] > 1:
         for lidx in xrange(1, options['n_layers_out']):
-            logit = get_layer('ff')[1](tparams, logit, options, prefix='ff_logit_h%d'%lidx, activ='rectifier')
+            logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activ='rectifier')
             if options['use_dropout']:
                 logit = dropout_layer(logit, use_noise, rng=rng)
-    logit = get_layer('ff')[1](tparams, logit, options, prefix='ff_logit', activ='linear')
+    logit = fflayer(tparams, logit, options, prefix='ff_logit', activ='linear')
     logit_shp = logit.shape
     next_probs = T.softmax(logit)
     next_sample = T.multinomial(shape=(),pvals=next_probs, rng=rng).argmax(1)
