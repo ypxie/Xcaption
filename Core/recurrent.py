@@ -1,9 +1,8 @@
 import numpy as np
-import theano
 import backend.export as T
+from  backend.export import npwrapper
 
-from backend.export import npwrapper
-from Core.utils_func import *
+from  Core.utils_func  import *
 
 from utils import activations, initializations, regularizers
 
@@ -273,7 +272,7 @@ def lstm_cond_layer(tparams, state_below, options, prefix='lstm',mask=None,
         # [see (Section 4.1): Stochastic "Hard" Attention]
         semi_sampling_p = options.get("semi_sampling_p", 0.5)
         temperature_c = T.shared(np.float32(temperature), name='temperature_c')
-        h_sampling_mask = T.binomial((1,), p=semi_sampling_p, n=1, dtype=theano.config.floatX, rng=rng).sum()
+        h_sampling_mask = T.binomial((1,), p=semi_sampling_p, n=1, dtype=T.floatX, rng=rng).sum()
 
     def _slice(_x, n, dim):
         if _x.ndim == 3:
@@ -313,12 +312,12 @@ def lstm_cond_layer(tparams, state_below, options, prefix='lstm',mask=None,
             alpha = T.softmax(temperature_c*alpha.reshape([alpha_shp[0],alpha_shp[1]])) # softmax
             # TODO return alpha_sample
             if sampling:
-                alpha_sample = h_sampling_mask * T.multinomial(pvals=alpha,dtype=theano.config.floatX, rng=rng)\
+                alpha_sample = h_sampling_mask * T.multinomial(pvals=alpha,dtype=T.floatX, rng=rng)\
                                + (1.-h_sampling_mask) * alpha
             else:
                 if argmax:
                     alpha_sample = T.cast(T.eq(T.arange(alpha_shp[1])[None,:],
-                                               T.argmax(alpha,axis=1,keepdims=True)), theano.config.floatX)
+                                               T.argmax(alpha,axis=1,keepdims=True)), T.floatX)
                 else:
                     alpha_sample = alpha
             ctx_ = (context * alpha_sample[:,:,None]).sum(1) # current context
@@ -438,7 +437,8 @@ def init_dynamic_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=No
 
     # input to LSTM, similar to the above, we stack the matricies for compactness, do one
     # dot product, and use the slice function below to get the activations for each "gate"
-    W = np.concatenate(    [norm_weight(nin,dim),
+    #print globals()['norm_weight']
+    W = np.concatenate( [  norm_weight(nin,dim),
                            norm_weight(nin,dim),
                            norm_weight(nin,dim),
                            norm_weight(nin,dim)], axis=1)
@@ -511,9 +511,16 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
                             rng=None, use_noise=None, sampling=True,wr_tm1 = None, argmax=False,
                             activation='tanh', inner_activation='hard_sigmoid',**kwargs):
     '''
-    tparams: contains the ordredDict of symbolic parameters.
-    state_below: timestep * batchsize * input_dim
-    options: model configuration
+    Parameters
+    ----------
+      tparams: contains the ordredDict of symbolic parameters.
+      state_below: timestep * batchsize * input_dim
+      contex : nsample * annotation * dim
+      options: model configuration
+    Returns
+    -------
+    
+
     '''
     def get_dropout(shapelist=[None,None,None,None], droprate = 0):
         #if self.seed is None:
@@ -556,9 +563,6 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
     # initial/previous memory
     if init_memory is None:
         init_memory = T.alloc(0., n_samples, dim)
-
-
-
     # projected context
     pctx_ = T.dot(context, tparams[get_name(prefix,'Wc_att')]) + tparams[get_name(prefix, 'b_att')]
     if options['n_layers_att'] > 1:
@@ -592,8 +596,8 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
         temperature = options.get("temperature", 1)
         # [see (Section 4.1): Stochastic "Hard" Attention]
         semi_sampling_p = options.get("semi_sampling_p", 0.5)
-        temperature_c = theano.shared(np.float32(temperature), name='temperature_c')
-        h_sampling_mask = T.binomial((1,), p=semi_sampling_p, n=1, dtype=theano.config.floatX, rng= rng).sum()
+        temperature_c = T.shared(np.float32(temperature), name='temperature_c')
+        h_sampling_mask = T.binomial((1,), p=semi_sampling_p, n=1, dtype=T.floatX, rng= rng).sum()
 
     def _slice(_x, n, dim):
         if _x.ndim == 3:
@@ -624,8 +628,10 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
         s = T.softmax(T.dot(h, W_s) + b_s)
         return k, beta, g, gamma, s
 
-    def _step(m_, x_, h_, c_, a_, as_, ct_,pctx_, wr_tm1 =None,  dropoutmatrix=None):
+    def _step(m_, x_, h_, c_, a_, as_,pctx_, wr_tm1 =None,  dropoutmatrix=None):
         """ Each variable is one time slice of the LSTM
+        Only use it if you use wr_tm1, otherwise use a wrapper that does not have wr_tm1
+
         m_ - (mask), x_- (previous word), h_- (hidden state), c_- (lstm memory),
         a_ - (alpha distribution [eq (5)]), as_- (sample from alpha dist),
         pctx_ (projected context), dp_/dp_att_ (dropout masks)
@@ -714,12 +720,12 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
                 alpha = T.softmax(temperature_c*alpha.reshape([alpha_shp[0],alpha_shp[1]])) # softmax
                 # TODO return alpha_sample
                 if sampling:
-                    alpha_sample = h_sampling_mask * T.multinomial(pvals=alpha,dtype=theano.config.floatX, rng=rng)\
+                    alpha_sample = h_sampling_mask * T.multinomial(pvals=alpha,dtype=T.floatX, rng=rng)\
                                    + (1.-h_sampling_mask) * alpha
                 else:
                     if argmax:
                         alpha_sample = T.cast(T.eq(T.arange(alpha_shp[1])[None,:],
-                                                   T.argmax(alpha,axis=1,keepdims=True)), theano.config.floatX)
+                                                   T.argmax(alpha,axis=1,keepdims=True)), T.floatX)
                     else:
                         alpha_sample = alpha
                 ctx_ = (context * alpha_sample[:,:,None]).sum(1) # current context
@@ -743,7 +749,7 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
 
         i = inner_activation(_slice(preact, 0, dim))
         f = inner_activation(_slice(preact, 1, dim))
-        o = inner_activation(o = _slice(preact, 2, dim))
+        o = inner_activation(_slice(preact, 2, dim))
         c = activation(_slice(preact, 3, dim))
         # compute the new memory/hidden state
         # if the mask is 0, just copy the previous state
@@ -754,47 +760,32 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
         h = m_[:,None] * h + (1. - m_)[:,None] * h_
 
         rval = [h, c, alpha, alpha_sample, ctx_]
-        if options['selector']:
-            rval += [sel_]
         if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
             rval += [wr_tm1]
+
+        if options['selector']:
+            rval += [sel_]
+
         rval += [pstate_, pctx_, i, f, o, preact, alpha_pre]+pctx_list
         return rval
 
-    if options['selector']:
-        if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
-            def f(m_, x_, h_, c_, a_, as_, ct_,sel_, wr_tm1, pctx_):
-                return _step(m_, x_, h_, c_, a_, as_, ct_,pctx_, wr_tm1 = wr_tm1)
-            _step0 = f # lambda m_, x_, h_, c_, a_, as_, ct_,sel_, wr_tm1, pctx_: _step(m_, x_, h_, c_, a_, as_, ct_,pctx_, wr_tm1 = wr_tm1)
-        else:
-            def f(m_, x_, h_, c_, a_, as_, ct_,sel_, pctx_):
-                return _step(m_, x_, h_, c_, a_, as_, ct_,pctx_)
-            _step0 = f # m_, x_, h_, c_, a_, as_, ct_,sel_, pctx_: _step(m_, x_, h_, c_, a_, as_, ct_,pctx_)
+    #when you have an option about what you want to return in outputs_info. Wrapper _step
+    if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
+        _step0 = _step
     else:
-        if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
-            def f(m_, x_, h_, c_, a_, as_, ct_, wr_tm1, pctx_):
-                return _step(m_, x_, h_, c_, a_, as_, ct_, pctx_, wr_tm1 = wr_tm1)
-            _step0 = f #  m_, x_, h_, c_, a_, as_, ct_, wr_tm1, pctx_: _step(m_, x_, h_, c_, a_, as_, ct_, pctx_, wr_tm1 = wr_tm1)
-        else:
-            def f(m_, x_, h_, c_, a_, as_,  ct_,pctx_):
-                return _step(m_, x_, h_, c_, a_, as_, ct_, pctx_)
-            _step0 = f # m_, x_, h_, c_, a_, as_,  ct_,pctx_: _step(m_, x_, h_, c_, a_, as_, ct_, pctx_)
+        def f(m_, x_, h_, c_, a_, as_, pctx_,dropoutmatrix):
+            return _step(m_, x_, h_, c_, a_, as_, pctx_,dropoutmatrix=dropoutmatrix)
+        _step0 = f # m_, x_, h_, c_, a_, as_,  ct_,pctx_: _step(m_, x_, h_, c_, a_, as_, ct_, pctx_)
 
     if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
         if wr_tm1 == None:
            wr_tm1= T.alloc(0., n_samples, pctx_.shape[1])  #w_tm1
 
     if one_step:
-        if options['selector']:
-            if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
-                rval = _step0(mask, state_below, init_state, init_memory, None, None, None,None, wr_tm1, pctx_)
-            else:
-                rval = _step0(mask, state_below, init_state, init_memory, None, None, None,None, pctx_)
+        if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
+            rval = _step0(mask, state_below, init_state, init_memory, None, None, wr_tm1, pctx_)
         else:
-            if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
-                rval = _step0(mask, state_below, init_state, init_memory, None, None,None, wr_tm1, pctx_)
-            else:
-                rval = _step0(mask, state_below, init_state, init_memory, None, None,None, pctx_)
+            rval = _step0(mask, state_below, init_state, init_memory, None, None, pctx_)
         return rval
     else:
         seqs = [mask, state_below]
@@ -804,11 +795,14 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
                         T.alloc(0., n_samples, pctx_.shape[1]),   # as_
                         T.alloc(0., n_samples, context.shape[2])] # pctx_
 
-        if options['selector']:
-            outputs_info += [T.alloc(0., n_samples)]
+        
         if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
             outputs_info += [wr_tm1]  #w_tm1
-
+        if options['selector']:
+            outputs_info += [None]  
+            #why do you want it to be an paramter when you dont use it???
+            #outputs_info += [T.alloc(0., n_samples)] 
+        #outputs_info with None don't have position in _step parameter list.
         outputs_info += [None,
                          None,
                          None,
