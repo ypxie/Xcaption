@@ -1,6 +1,6 @@
 
 from theano.tensor import *
-from theano import scan, shared
+from theano import scan, shared, function
 import theano.tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 _FLOATX = 'float32'
@@ -14,7 +14,6 @@ from backend.keras_backend.theano_backend import *
 
 def reshape(x, shape):
     return T.reshape(x, shape)
-
 
 def sigmoid(x):
     return T.nnet.sigmoid(x)

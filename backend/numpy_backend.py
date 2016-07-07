@@ -8,8 +8,51 @@ from backend.scan_utils import *
 _logger = logging.getLogger('theano.scan_module.scan')
 _FLOATX = 'float32'
 
-def addAttribute(x, attr=None, value=None):
+dimshuffle = np.transpose
+_LEARNING_PHASE = np.zeros((1))
+
+class npwrapper(np.ndarray):
+    '''usage: to append trainable attr to numpy object in layer initialization
+       eg: b = npwrapper(np.arange(5), trainable=False) '''
+    def __new__(cls, input_array, trainable=True):
+        obj = np.asarray(input_array).view(cls)
+        obj.trainable = trainable
+        return obj 
+
+    def __array_finalize__(self, obj):
+        #print('In __array_finalize__:')
+        #print('   self is %s' % repr(self))
+        #print('   obj is %s' % repr(obj))
+        if obj is None: return
+        self.trainable = getattr(obj, 'trainable', None)
+
+    def __array_wrap__(self, out_arr, context=None):
+        #print('In __array_wrap__:')
+        #print('   self is %s' % repr(self))
+        #print('   arr is %s' % repr(out_arr))
+        # then just call the parent
+        return np.ndarray.__array_wrap__(self, out_arr, context)
+
+def learning_phase():
+    # False = test, True = train
+    return _LEARNING_PHASE
+
+def in_train_phase(x, alt):
+    x = T.switch(_LEARNING_PHASE, x, alt)
+    if not isinstance(x, npwrapper):
+       x = npwrapper(x)
+    x._uses_learning_phase = True
     return x
+
+def function(inputlist, outputlist,**kwargs):
+    pass
+
+
+def switch(condition, then_expression, else_expression):
+    '''condition: scalar tensor.
+    '''
+    return np.where(condition, then_expression, else_expression)
+
 
 def relu(x):
     return x * (x > 0)
@@ -66,12 +109,6 @@ def tensor4(name='x', dtype='float32', shape = None):
     x= np.zeros(shape).astype(dtype)
     return x
 
-def switch(cond, a, b):
-    if cond:
-        return a
-    else:
-        return b
-
 def set_subtensor(dest, source):
     dest = source
     return dest
@@ -86,6 +123,18 @@ def unbroadcast(x, *axes):
 	return x
 def addbroadcast(x, *axes):
 	return x
+
+def expand_dims(x, dim=-1):
+    '''Add a 1-sized dimension at index "dim".
+    '''
+    pattern = [i for i in range(x.type.ndim)]
+    if dim < 0:
+        if x.type.ndim == 0:
+            dim = 0
+        else:
+            dim = dim % x.type.ndim + 1
+    pattern.insert(dim, 'x')
+    return x.transpose(pattern)
 
 def shape_padleft(t, n_ones=1):
     pattern = [1] * n_ones + [t.shape[i] for i in xrange(t.ndim)]
@@ -272,14 +321,14 @@ def scan(fn,
 
                 # Add names to slices for debugging and pretty printing ..
                 # that is if the input already has a name
-#                if getattr(seq['input'], 'name', None) is not None:
-#                    if k > 0:
-#                        nw_name = seq['input'].name + '[t+%d]' % k
-#                    elif k == 0:
-#                        nw_name = seq['input'].name + '[t]'
-#                    else:
-#                        nw_name = seq['input'].name + '[t%d]' % k
-#                    nw_slice.name = nw_name
+                #              if getattr(seq['input'], 'name', None) is not None:
+                #                    if k > 0:
+                #                        nw_name = seq['input'].name + '[t+%d]' % k
+                #                    elif k == 0:
+                #                        nw_name = seq['input'].name + '[t]'
+                #                    else:
+                #                        nw_name = seq['input'].name + '[t%d]' % k
+                #                    nw_slice.name = nw_name
 
                 # We cut the sequence such that seq[i] to correspond to
                 # seq[i-k]. For the purposes of cutting the sequences, we

@@ -29,7 +29,7 @@ Returns
 """
 # See "ADADELTA: An adaptive learning rate method", Matt Zeiler (2012) arXiv
 # preprint http://arxiv.org/abs/1212.5701
-def adadelta(lr, tparams, grads, inp, cost, hard_attn_up):
+def adadelta(lr, tparams, grads, inp, cost, hard_attn_up=[]):
     zipped_grads = [T.shared(p.get_value() * numpy.float32(0.), name='%s_grad'%k) for k, p in tparams.iteritems()]
     running_up2 = [T.shared(p.get_value() * numpy.float32(0.), name='%s_rup2'%k) for k, p in tparams.iteritems()]
     running_grads2 = [T.shared(p.get_value() * numpy.float32(0.), name='%s_rgrad2'%k) for k, p in tparams.iteritems()]

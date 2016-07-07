@@ -114,8 +114,8 @@ if __name__ == "__main__":
                 "sampleFreq":100,
                 "dataset": "flickr30k",
                 "data_path" : data_path,
-                "debug" : False
-                 }
+                "debug" : True
+                 } 
     # get updates from command line
     args = parser.parse_args()
     for change in args.changes:

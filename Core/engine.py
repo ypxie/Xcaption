@@ -1,5 +1,4 @@
 import numpy as np
-import theano
 import backend.export as T
 from backend.export import RandomStreams
 from collections import OrderedDict
@@ -13,8 +12,11 @@ from Core.optimizers import adadelta, adam, rmsprop, sgd
 
 def init_params(options):
     params = OrderedDict()
-    # embedding: [matrix E in paper]
-    params['Wemb'] = norm_weight(options['n_words'], options['dim_word'])
+    # embedding: [matrix E in paper] get_name
+    #params['Wemb'] = norm_weight(options['n_words'], options['dim_word'])
+
+    params = init_embeding(options, params, prefix='embeding',input_dim=options['n_words'],
+                  output_dim=options['dim_word'], init='normal',trainable=True)
     ctx_dim = options['ctx_dim']
     lstm_cond_ndim = options['dim_word'] # originally, it accepts input from text.
     if options['lstm_encoder']: # potential feature that runs an LSTM over the annotation vectors
@@ -56,8 +58,10 @@ def init_params(options):
                                 nout=options['n_words'], trainable = True)
 
     return params
-     
 
+
+      
+# build a training model
 def build_model(tparams, options, sampling=True):
     """ Builds the entire computational graph used for training
 
@@ -125,7 +129,8 @@ def build_model(tparams, options, sampling=True):
     n_samples = x.shape[1]
 
     # index into the word embedding matrix, shift it forward in time
-    emb = tparams['Wemb'][x.flatten()].reshape([n_timesteps, n_samples, options['dim_word']])
+    #emb = tparams['Wemb'][x.flatten()].reshape([n_timesteps, n_samples, options['dim_word']])
+    emb = embeding_layer(tparams, x, options, prefix='embeding',dropout=None)
     emb_shifted = T.zeros_like(emb)
     emb_shifted = T.set_subtensor(emb_shifted[1:], emb[:-1])
     emb = emb_shifted
@@ -229,13 +234,13 @@ def build_model(tparams, options, sampling=True):
 
     return rng, use_noise, [x, mask, ctx], alphas, alpha_sample, cost, opt_outs
 
-
 # build a sampler
 def build_sampler(tparams, options, use_noise, rng, sampling=True):
     """ Builds a sampler used for generating from the model
     Parameters
     ----------
-        See build_model function above
+        See build_model function above, since we only run one step, so 
+        the dimension of RNN input will be one dimension less.
     Returns
     -------
     f_init : theano function
@@ -245,8 +250,30 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
         Takes the previous word/state/memory + ctx0 and runs ne
         step through the lstm (used for beam search)
     """
-    # context: #annotations x dim
-    ctx = T.matrix('ctx_sampler', dtype='float32')
+    if options['debug'] == 1:
+        # start of debuging
+        from Core.train import  get_dataset
+        from fuel.homogeneous_data import HomogeneousData
+        batch_size, maxlen = 12,100
+        load_data, prepare_data = get_dataset(options['dataset'])
+        train, valid, test, worddict = load_data(path = options['data_path'])
+        train_iter = HomogeneousData(train, batch_size=batch_size, maxlen=maxlen)
+        for caps in train_iter:
+            x_init, mask_init, ctx_init = prepare_data(caps,
+                                            train[1],
+                                            worddict,
+                                            maxlen=maxlen,
+                                            n_words=options['n_words'])
+            break
+    if options['debug'] == 1:
+        # start of debuging
+        ctx = ctx_init[0]
+            
+    else:
+        # context: #annotations x dim, the features are NOT row by col by dim.
+        ctx = T.matrix('ctx_sampler', dtype='float32')
+
+    
     if options['lstm_encoder']:
         # encoder
         ctx_fwd = lstm_layer(tparams, ctx,
@@ -270,19 +297,26 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
             init_memory.append(fflayer(tparams, ctx_mean, options, prefix='ff_memory_%d'%lidx, activ='tanh'))
 
     print 'Building f_init...',
-    f_init = theano.function([ctx], [ctx]+init_state+init_memory, name='f_init', profile=False)
+    f_init = T.function([ctx,T.learning_phase()], [ctx]+init_state+init_memory, name='f_init', profile=False)
     print 'Done'
-
+    
     # build f_next
-    ctx = T.matrix('ctx_sampler', dtype='float32')
-    x = T.vector('x_sampler', dtype='int64')
+    if options['debug'] == 1:
+        # start of debuging
+        ctx = ctx_init[0]
+        x   = x_init[:,0]
+    else:
+        # context: #annotations x dim, the features are NOT row by col by dim.
+        ctx = T.matrix('ctx_sampler', dtype='float32')
+        x = T.vector('x_sampler', dtype='int64')
+
     init_state = [T.matrix('init_state', dtype='float32')]
     init_memory = [T.matrix('init_memory', dtype='float32')]
     if options['n_layers_lstm'] > 1:
         for lidx in xrange(1, options['n_layers_lstm']):
             init_state.append(T.matrix('init_state', dtype='float32'))
             init_memory.append(T.matrix('init_memory', dtype='float32'))
-
+   
     # for the first word (which is coded with -1), emb should be all zero
     emb = T.switch(x[:,None] < 0, T.alloc(0., 1, tparams['Wemb'].shape[1]),
                         tparams['Wemb'][x])
@@ -339,7 +373,7 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
 
     # next word probability
     print "Building f_next..."
-    f_next = theano.function([x, ctx]+init_state+init_memory, [next_probs, next_sample]+next_state+next_memory, name='f_next', profile=False)
+    f_next = T.function([x, ctx,T.learning_phase()]+init_state+init_memory, [next_probs, next_sample]+next_state+next_memory, name='f_next', profile=False)
     print 'Done'
     return f_init, f_next
 
@@ -399,7 +433,8 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
     hyp_memories = []
 
     # only matters if we use lstm encoder
-    rval = f_init(ctx0)
+    learning_phase = 0
+    rval = f_init(ctx0,learning_phase)
     ctx0 = rval[0]
     next_state = []
     next_memory = []
@@ -416,7 +451,7 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
 
     for ii in xrange(maxlen):
         # our "next" state/memory in our previous step is now our "initial" state and memory
-        rval = f_next(*([next_w, ctx0]+next_state+next_memory))
+        rval = f_next(*([next_w, ctx0]+next_state+next_memory + [learning_phase]))
         next_p = rval[0]
         next_w = rval[1]
 
@@ -438,8 +473,8 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
             ranks_flat = cand_flat.argsort()[:(k-dead_k)] # (k-dead_k) np array of with min nll
 
             voc_size = next_p.shape[1]
-            # indexing into the correct selected captions
-            trans_indices = ranks_flat / voc_size
+            # indexing into the correct selected captions, the flat index is originally #sentence*voc_size
+            trans_indices = ranks_flat / voc_size  
             word_indices = ranks_flat % voc_size
             costs = cand_flat[ranks_flat] # extract costs from top hypothesis
 
@@ -472,7 +507,7 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
             hyp_memories = []
             for lidx in xrange(options['n_layers_lstm']):
                 hyp_memories.append([])
-
+            # check for completed sentences.
             for idx in xrange(len(new_hyp_samples)):
                 if new_hyp_samples[idx][-1] == 0:
                     sample.append(new_hyp_samples[idx])
@@ -512,45 +547,4 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
     return sample, sample_score
 
 
-def pred_probs(f_log_probs, options, worddict, prepare_data, data, iterator, verbose=False):
-    """ Get log probabilities of captions
-    Parameters
-    ----------
-    f_log_probs : theano function
-        compute the log probability of a x given the context
-    options : dict
-        options dictionary
-    worddict : dict
-        maps words to one-hot encodings
-    prepare_data : function
-        see corresponding dataset class for details
-    data : np array
-        output of load_data, see corresponding dataset class
-    iterator : KFold
-        indices from scikit-learn KFold
-    verbose : boolean
-        if True print progress
-    Returns
-    -------
-    probs : np array
-        array of log probabilities indexed by example
-    """
-    n_samples = len(data[0])
-    probs = np.zeros((n_samples, 1)).astype('float32')
 
-    n_done = 0
-
-    for _, valid_index in iterator:
-        x, mask, ctx = prepare_data([data[0][t] for t in valid_index],
-                                     data[1],
-                                     worddict,
-                                     maxlen=None,
-                                     n_words=options['n_words'])
-        pred_probs = f_log_probs(x,mask,ctx)
-        probs[valid_index] = pred_probs[:,None]
-
-        n_done += len(valid_index)
-        if verbose:
-            print '%d/%d samples computed'%(n_done,n_samples)
-
-    return probs

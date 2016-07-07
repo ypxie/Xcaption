@@ -13,7 +13,6 @@ more detailed explanations in the above paper.
 #import theano.tensor as tensor
 #from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
-import theano
 import backend.export as T
 from fuel.homogeneous_data import HomogeneousData
 from fuel import datasets
@@ -55,6 +54,48 @@ def validate_options(options):
 
     return options
 
+def pred_probs(f_log_probs, options, worddict, prepare_data, data, iterator, verbose=False, train=0):
+    """ Get log probabilities of captions
+    Parameters
+    ----------
+    f_log_probs : theano function
+        compute the log probability of a x given the context
+    options : dict
+        options dictionary
+    worddict : dict
+        maps words to one-hot encodings
+    prepare_data : function
+        see corresponding dataset class for details
+    data : np array
+        output of load_data, see corresponding dataset class
+    iterator : KFold
+        indices from scikit-learn KFold
+    verbose : boolean
+        if True print progress
+    Returns
+    -------
+    probs : np array
+        array of log probabilities indexed by example
+    """
+    n_samples = len(data[0])
+    probs = np.zeros((n_samples, 1)).astype('float32')
+
+    n_done = 0
+
+    for _, valid_index in iterator:
+        x, mask, ctx = prepare_data([data[0][t] for t in valid_index],
+                                     data[1],
+                                     worddict,
+                                     maxlen=None,
+                                     n_words=options['n_words'])
+        pred_probs = f_log_probs(x,mask,ctx,train)
+        probs[valid_index] = pred_probs[:,None]
+
+        n_done += len(valid_index)
+        if verbose:
+            print '%d/%d samples computed'%(n_done,n_samples)
+
+    return probs
 
 """Note: all the hyperparameters are stored in a dictionary model_options (or options outside train).
    train() then proceeds to do the following:
@@ -102,7 +143,7 @@ def train(dim_word=100,  # word vector dimensionality
           use_dropout=False,  # setting this true turns on dropout at various points
           use_dropout_lstm=False,  # dropout on lstm gates
           reload_=False,
-          save_per_epoch=False, debug = False, **kwargs): # this saves down the model every epoch
+          save_per_epoch=False, debug = True, **kwargs): # this saves down the model every epoch
 
     # hyperparam dict
     model_options = locals().copy()
@@ -163,7 +204,8 @@ def train(dim_word=100,  # word vector dimensionality
     f_init, f_next = build_sampler(tparams, model_options, use_noise, rng)
 
     # we want the cost without any the regularizers
-    f_log_probs = theano.function(inps, -cost, profile=False,
+    inpus += [T.learning_phase()]
+    f_log_probs = T.function(inps, -cost, profile=False,
                                         updates=opt_outs['attn_updates']
                                         if model_options['attn_type']=='stochastic'
                                         else None)
@@ -191,9 +233,9 @@ def train(dim_word=100,  # word vector dimensionality
         grads = T.grad(cost, wrt=itemlist(trainable_param))
     else:
         # shared variables for hard attention
-        baseline_time = theano.shared(np.float32(0.), name='baseline_time')
+        baseline_time = T.shared(np.float32(0.), name='baseline_time')
         opt_outs['baseline_time'] = baseline_time
-        alpha_entropy_c = theano.shared(np.float32(alpha_entropy_c), name='alpha_entropy_c')
+        alpha_entropy_c = T.shared(np.float32(alpha_entropy_c), name='alpha_entropy_c')
         alpha_entropy_reg = alpha_entropy_c * (alphas*T.log(alphas)).mean()
         # [see Section 4.1: Stochastic "Hard" Attention for derivation of this learning rule]
         if model_options['RL_sumCost']:
@@ -280,7 +322,7 @@ def train(dim_word=100,  # word vector dimensionality
 
             # get the cost for the minibatch, and update the weights
             ud_start = time.time()
-            cost = f_grad_shared(x, mask, ctx)
+            cost = f_grad_shared(x, mask, ctx, 1)
             f_update(lrate)
             ud_duration = time.time() - ud_start # some monitoring for each mini-batch
 
@@ -344,9 +386,9 @@ def train(dim_word=100,  # word vector dimensionality
                 test_err = 0
 
                 if valid:
-                    valid_err = -pred_probs(f_log_probs, model_options, worddict, prepare_data, valid, kf_valid).mean()
+                    valid_err = -pred_probs(f_log_probs, model_options, worddict, prepare_data, valid, kf_valid, train=0).mean()
                 if test:
-                    test_err = -pred_probs(f_log_probs, model_options, worddict, prepare_data, test, kf_test).mean()
+                    test_err = -pred_probs(f_log_probs, model_options, worddict, prepare_data, test, kf_test,train=0).mean()
 
                 history_errs.append([valid_err, test_err])
 
