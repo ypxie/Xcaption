@@ -50,7 +50,7 @@ def learning_phase():
     return _LEARNING_PHASE
 
 def in_train_phase(x, alt):
-    x = T.switch(_LEARNING_PHASE, x, alt)
+    x = switch(_LEARNING_PHASE, x, alt)
     if not isinstance(x, npwrapper):
        x = npwrapper(x)
     x._uses_learning_phase = True
@@ -65,9 +65,12 @@ def switch(condition, then_expression, else_expression):
     '''
     return np.where(condition, then_expression, else_expression)
 
-
-def relu(x):
-    return x * (x > 0)
+def relu(x, alpha=0., max_value=None):
+    x = switch(x>0, x, alpha*x)
+    if max_value is not None:
+        x = np.minimum(x, max_value)
+    return x
+    
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
   

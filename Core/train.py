@@ -44,7 +44,7 @@ def validate_options(options):
     if options['lstm_encoder']:
         warnings.warn('Note that this is a 1-D bidirectional LSTM, not 2-D one.')
 
-    if options['use_dropout_lstm']:
+    if options['lstm_dropout']:
         warnings.warn('dropout in the lstm seems not to help')
 
     # Other checks:

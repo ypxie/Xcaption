@@ -16,7 +16,7 @@ def dropout_layer(state_before, rng =None,dropoutrate=0.5):
     """
     if 0. < dropoutrate < 1.:
         retain_p = 1. - dropoutrate
-        B = T.binomial(shape = state_before.shape, p=p, n=1,dtype=state_before.dtype,rng = rng) * (1. / retain_p)
+        B = T.binomial(shape = state_before.shape, p=retain_p, n=1,dtype=state_before.dtype,rng = rng) * (1. / retain_p)
         proj = T.in_train_phase(state_before * B, state_before)
     return proj
     # proj = T.switch(use_noise,
@@ -79,7 +79,7 @@ def embeding_layer(tparams, x, options, prefix='embeding',dropoutrate=None,
        filled_value: The special value to filled based on specifier.
     '''
     W = tparams[get_name(prefix,'W')]
-    if 0. < dropout < 1.:
+    if 0. < dropoutrate < 1.:
         retain_p = 1. - dropoutrate
         B = T.binomial(shape=(W.shape[0],), p=retain_p) * (1. / retain_p)
         B = T.expand_dims(B)
