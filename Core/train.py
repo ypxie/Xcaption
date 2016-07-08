@@ -26,9 +26,8 @@ import time
 
 from sklearn.cross_validation import KFold
 
-import warnings
+import warning
 # [see Section (4.3) for explanation]
-
 
 # supported optimizers
 
