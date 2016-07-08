@@ -34,7 +34,7 @@ def init_lstm(options, params, prefix='lstm', nin=None, dim=None,trainable = Tru
 
     return params
 
-def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None, dropoutrate=None,
+def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None, 
                activation='tanh', inner_activation='hard_sigmoid', **kwargs):
     '''
     tparams: contains the ordredDict of symbolic parameters.
