@@ -204,7 +204,7 @@ def train(dim_word=100,  # word vector dimensionality
     f_init, f_next = build_sampler(tparams, model_options, use_noise, rng)
 
     # we want the cost without any the regularizers
-    inpus += [T.learning_phase()]
+    inps += [T.learning_phase()] 
     f_log_probs = T.function(inps, -cost, profile=False,
                                         updates=opt_outs['attn_updates']
                                         if model_options['attn_type']=='stochastic'
@@ -259,8 +259,18 @@ def train(dim_word=100,  # word vector dimensionality
 
     # f_grad_shared computes the cost and updates adaptive learning rate variables
     # f_update updates the weights of the model
-    lr = T.scalar(name='lr')
-    f_grad_shared, f_update = eval(optimizer)(lr, trainable_param, grads, inps, cost, hard_attn_updates)
+
+    #lr = T.scalar(name='lr')
+    #opt = optimizers.get(optimizer)
+    opt = eval(optimizer)(lr=lrate)
+
+    #opt = Adadelta(lr=lrate, rho=0.95, epsilon=1e-06)
+    training_updates = opt.get_updates(trainable_param,grads)
+
+    updates = hard_attn_updates + training_updates
+    f_train = T.function(inps,cost, updates=updates)
+
+    #f_grad_shared, f_update = eval(optimizer)(lr, trainable_param, grads, inps, cost, hard_attn_updates)
 
     total_time = time.time() - time_start
     print "Building Model takes {}".format(total_time)
@@ -322,8 +332,9 @@ def train(dim_word=100,  # word vector dimensionality
 
             # get the cost for the minibatch, and update the weights
             ud_start = time.time()
-            cost = f_grad_shared(x, mask, ctx, 1)
-            f_update(lrate)
+            #cost = f_grad_shared(x, mask, ctx, 1)
+            #f_update(lrate)
+            cost = f_train(x,mask,ctx,1.0)
             ud_duration = time.time() - ud_start # some monitoring for each mini-batch
 
             # Numerical stability check

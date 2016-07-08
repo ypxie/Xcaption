@@ -112,7 +112,7 @@ class SGD(Optimizer):
         decay: float >= 0. Learning rate decay over each update.
         nesterov: boolean. Whether to apply Nesterov momentum.
     '''
-    def __init__(self, lr=0.01, momentum=0., decay=0.,
+    def __init__(self, lr=0.01, momentum=0.8, decay=0.,
                  nesterov=False, **kwargs):
         super(SGD, self).__init__(**kwargs)
         self.__dict__.update(locals())
