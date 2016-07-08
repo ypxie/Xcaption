@@ -34,17 +34,17 @@ def init_lstm(options, params, prefix='lstm', nin=None, dim=None,trainable = Tru
 
     return params
 
-def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,droprate=None,
+def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None, dropoutrate=None,
                activation='tanh', inner_activation='hard_sigmoid', **kwargs):
     '''
     tparams: contains the ordredDict of symbolic parameters.
     state_below: timestep * batchsize * input_dim
     options: model configuration
     '''
-    def get_dropout(shapelist=[None,None], droprate = 0):
+    def get_dropout(shapelist=[None,None], dropoutrate = 0):
         #if self.seed is None:
-        if droprate is not None:
-          retain_prob = 1- droprate
+        if dropoutrate is not None:
+          retain_prob = 1- dropoutrate
 
           W1 = T.binomial(shape= shapelist[0], p = retain_prob, dtype = T.floatX)/retain_prob
           W2 = T.binomial(shape= shapelist[1], p = retain_prob, dtype = T.floatX)/retain_prob
@@ -104,7 +104,7 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,droprate=
     batchsize = state_below.shape[1]
     w_shape = (1,batchsize, state_below.shape[2])
     u_shape = (1,batchsize, tparams[get_name(prefix, 'U')].shape[0])
-    dropoutmatrix = get_dropout(shapelist = [w_shape,u_shape], droprate=droprate)
+    dropoutmatrix = get_dropout(shapelist = [w_shape,u_shape], dropoutrate=options['lstm_dropout'])
     if dropoutmatrix[0] is not None:
        drop_state_below = state_below * dropoutmatrix[0]
     else:
@@ -187,18 +187,18 @@ def init_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=None, dimc
 
 def lstm_cond_layer(tparams, state_below, options, prefix='lstm',mask=None,
                     context=None, one_step=False, init_memory=None, init_state=None,
-                    rng=None, use_noise=None, sampling=True, argmax=False, droprate=None,
+                    rng=None, use_noise=None, sampling=True, argmax=False, 
                     activation='tanh', inner_activation='hard_sigmoid',**kwargs):
     '''
     tparams: contains the ordredDict of symbolic parameters.
     state_below: timestep * batchsize * input_dim
     options: model configuration
     '''
-    def get_dropout(shapelist=[None,None,None,None], droprate = 0):
+    def get_dropout(shapelist=[None,None,None,None], dropoutrate = 0):
         #if self.seed is None:
-        if droprate is not None:
-          retain_prob = 1- droprate
-          #retain_prob_U = 1- droprate[0]
+        if dropoutrate is not None:
+          retain_prob = 1- dropoutrate
+          #retain_prob_U = 1- dropoutrate[0]
 
           W1 = T.binomial(shape= shapelist[0], p = retain_prob, dtype = T.floatX)/retain_prob
           W2 = T.binomial(shape= shapelist[1], p = retain_prob, dtype = T.floatX)/retain_prob
@@ -255,7 +255,7 @@ def lstm_cond_layer(tparams, state_below, options, prefix='lstm',mask=None,
     u_shape   = (1, batchsize, tparams[get_name(prefix, 'U')].shape[0])
     ctx_shape = (1, batchsize, tparams[get_name(prefix, 'Wc')].shape[0])
 
-    dropoutmatrix = get_dropout(shapelist = [w_shape,att_shape,u_shape,ctx_shape], droprate=droprate)
+    dropoutmatrix = get_dropout(shapelist = [w_shape,att_shape,u_shape,ctx_shape], dropoutrate=options['lstm_dropout'])
     if dropoutmatrix[0] is not None:
         drop_state_below = state_below * dropoutmatrix[0]
     else:
@@ -522,11 +522,11 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
     
 
     '''
-    def get_dropout(shapelist=[None,None,None,None], droprate = 0):
+    def get_dropout(shapelist=[None,None,None,None], dropoutrate = 0):
         #if self.seed is None:
-        if droprate is not None:
-          retain_prob = 1- droprate
-          #retain_prob_U = 1- droprate[0]
+        if dropoutrate is not None:
+          retain_prob = 1- dropoutrate
+          #retain_prob_U = 1- dropoutrate[0]
 
           W1 = T.binomial(shape= shapelist[0], p = retain_prob, dtype = T.floatX)/retain_prob
           W2 = T.binomial(shape= shapelist[1], p = retain_prob, dtype = T.floatX)/retain_prob
@@ -581,7 +581,7 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
     u_shape   = (1, batchsize, tparams[get_name(prefix, 'U')].shape[0])
     ctx_shape = (1, batchsize, tparams[get_name(prefix, 'Wc')].shape[0])
 
-    dropoutmatrix = get_dropout(shapelist = [w_shape,att_shape,u_shape,ctx_shape], droprate=droprate)
+    dropoutmatrix = get_dropout(shapelist = [w_shape,att_shape,u_shape,ctx_shape], dropoutrate=options['lstm_dropout'])
 
     if dropoutmatrix[0] is not None:
        drop_state_below = state_below * dropoutmatrix[0]

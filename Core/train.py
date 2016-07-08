@@ -26,7 +26,7 @@ import time
 
 from sklearn.cross_validation import KFold
 
-import warning
+import warnings
 # [see Section (4.3) for explanation]
 
 # supported optimizers
@@ -138,9 +138,9 @@ def train(dim_word=100,  # word vector dimensionality
           sampleFreq=100,  # generate some samples after every sampleFreq updates
           dataset='flickr8k',
           data_path = '../Data/TrainingData/flickr8k',
-          dictionary=None,  # word dictionary
-          use_dropout=False,  # setting this true turns on dropout at various points
-          use_dropout_lstm=False,  # dropout on lstm gates
+          dictionary= None,  # word dictionary
+          use_dropout= 0.5,  # setting this true turns on dropout at various points
+          lstm_dropout= None,  # dropout on lstm gates
           reload_=False,
           save_per_epoch=False, debug = True, **kwargs): # this saves down the model every epoch
 

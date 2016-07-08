@@ -149,7 +149,7 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
         ctx_mean = fflayer(tparams, ctx_mean, options,
                                       prefix='ff_init_%d'%lidx, activ='rectifier')
         if options['use_dropout']:
-            ctx_mean = dropout_layer(ctx_mean, rng = rng, dropoutrate = dropoutrate)
+            ctx_mean = dropout_layer(ctx_mean, rng = rng, dropoutrate = options['use_dropout'])
 
     init_state = fflayer(tparams, ctx_mean, options, prefix='ff_state', activ='tanh')
     init_memory = fflayer(tparams, ctx_mean, options, prefix='ff_memory', activ='tanh')
@@ -192,7 +192,7 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
         sels = proj[5]
 
     if options['use_dropout']:
-        proj_h = dropout_layer(proj_h, rng=rng, dropoutrate = dropoutrate)
+        proj_h = dropout_layer(proj_h, rng=rng, dropoutrate = options['use_dropout'])
 
     # compute word probabilities
     # [equation (7)]
@@ -203,12 +203,12 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
         logit += fflayer(tparams, ctxs, options, prefix='ff_logit_ctx', activ='linear')
     logit = tanh(logit)
     if options['use_dropout']:
-        logit = dropout_layer(logit, rng=rng, dropoutrate = dropoutrate)
+        logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
     if options['n_layers_out'] > 1:
         for lidx in xrange(1, options['n_layers_out']):
             logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activ='rectifier')
             if options['use_dropout']:
-                logit = dropout_layer(logit, rng=rng, dropoutrate = dropoutrate)
+                logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
 
     # compute softmax
     logit = fflayer(tparams, logit, options, prefix='ff_logit', activ='linear')
@@ -288,7 +288,7 @@ def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
         ctx_mean = fflayer(tparams, ctx_mean, options,
                                       prefix='ff_init_%d'%lidx, activ='rectifier')
         if options['use_dropout']:
-            ctx_mean = dropout_layer(ctx_mean, rng=rng, dropoutrate = dropoutrate)
+            ctx_mean = dropout_layer(ctx_mean, rng=rng, dropoutrate = options['use_dropout'])
     init_state = [fflayer(tparams, ctx_mean, options, prefix='ff_state', activ='tanh')]
     init_memory = [fflayer(tparams, ctx_mean, options, prefix='ff_memory', activ='tanh')]
     if options['n_layers_lstm'] > 1:
@@ -352,7 +352,7 @@ def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
             proj_h = proj[0]
 
     if options['use_dropout']:
-        proj_h = dropout_layer(proj[0], rng=rng, dropoutrate = dropoutrate)
+        proj_h = dropout_layer(proj[0], rng=rng, dropoutrate = options['use_dropout'])
     else:
         proj_h = proj[0]
     logit = fflayer(tparams, proj_h, options, prefix='ff_logit_lstm', activ='linear')
@@ -362,12 +362,12 @@ def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
         logit += fflayer(tparams, ctxs[-1], options, prefix='ff_logit_ctx', activ='linear')
     logit = tanh(logit)
     if options['use_dropout']:
-        logit = dropout_layer(logit, rng=rng, dropoutrate = dropoutrate)
+        logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
     if options['n_layers_out'] > 1:
         for lidx in xrange(1, options['n_layers_out']):
             logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activ='rectifier')
             if options['use_dropout']:
-                logit = dropout_layer(logit, rng=rng, dropoutrate = dropoutrate)
+                logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
     logit = fflayer(tparams, logit, options, prefix='ff_logit', activ='linear')
     logit_shp = logit.shape
     next_probs = T.softmax(logit)
