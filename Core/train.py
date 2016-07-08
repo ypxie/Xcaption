@@ -184,7 +184,7 @@ def train(dim_word=100,  # word vector dimensionality
 
     tparams = init_tparams(params)
     trainable_param = OrderedDict()
-    for k, v in tparams:
+    for k, v in tparams.iteritems():
         if v.trainable:
            trainable_param[k] = v
 
@@ -349,7 +349,8 @@ def train(dim_word=100,  # word vector dimensionality
             # Print a generated sample as a sanity check
             if np.mod(uidx, sampleFreq) == 0:
                 # turn off dropout first
-                use_noise.set_value(0.)
+                #use_noise.set_value(0.)
+                #K.set_learning_phase(0.)
                 x_s = x
                 mask_s = mask
                 ctx_s = ctx
@@ -380,7 +381,7 @@ def train(dim_word=100,  # word vector dimensionality
 
             # Log validation loss + checkpoint the model with the best validation log likelihood
             if np.mod(uidx, validFreq) == 0:
-                use_noise.set_value(0.)
+                #use_noise.set_value(0.)
                 train_err = 0
                 valid_err = 0
                 test_err = 0
@@ -423,7 +424,7 @@ def train(dim_word=100,  # word vector dimensionality
     if best_p is not None:
         zipp(best_p, tparams)
 
-    use_noise.set_value(0.)
+    #use_noise.set_value(0.)
     train_err = 0
     valid_err = 0
     test_err = 0

@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import numpy as np
-from . import backend as K
+import backend.export as K
+
 
 
 def mean_squared_error(y_true, y_pred):

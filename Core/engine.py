@@ -12,57 +12,56 @@ from Core.optimizers import adadelta, adam, rmsprop, sgd
 
 def init_params(options):
     params = OrderedDict()
+    trainable = True
     # embedding: [matrix E in paper] get_name
     #params['Wemb'] = norm_weight(options['n_words'], options['dim_word'])
-
     params = init_embeding(options, params, prefix='embeding',input_dim=options['n_words'],
-                  output_dim=options['dim_word'], init='normal',trainable=True)
+                  output_dim=options['dim_word'], init='normal',trainable=trainable)
     ctx_dim = options['ctx_dim']
     lstm_cond_ndim = options['dim_word'] # originally, it accepts input from text.
     if options['lstm_encoder']: # potential feature that runs an LSTM over the annotation vectors
         # encoder: LSTM
         params = init_lstm(options, params, prefix='encoder',
-                                      nin=options['dim_word'], dim=options['dim'], trainable = True)
+                                      nin=options['dim_word'], dim=options['dim'], trainable = trainable)
         params = init_lstm(options, params, prefix='encoder_rev',
-                                      nin=options['dim_word'], dim=options['dim'], trainable = True)
+                                      nin=options['dim_word'], dim=options['dim'], trainable = trainable)
         ctx_dim = options['dim'] * 2
         lstm_cond_ndim = options['dim']
     # init_state, init_cell: [top right on page 4]
     for lidx in xrange(1, options['n_layers_init']):
-        params = init_fflayer(options, params, prefix='ff_init_%d'%lidx, nin=ctx_dim, nout=ctx_dim, trainable = True)
-    params = init_fflayer(options, params, prefix='ff_state', nin=ctx_dim, nout=options['dim'], trainable = True)
-    params = init_fflayer(options, params, prefix='ff_memory', nin=ctx_dim, nout=options['dim'], trainable = True)
+        params = init_fflayer(options, params, prefix='ff_init_%d'%lidx, nin=ctx_dim, nout=ctx_dim, trainable = trainable)
+    params = init_fflayer(options, params, prefix='ff_state', nin=ctx_dim, nout=options['dim'], trainable = trainable)
+    params = init_fflayer(options, params, prefix='ff_memory', nin=ctx_dim, nout=options['dim'], trainable = trainable)
     # decoder: LSTM: [equation (1)/(2)/(3)]
     params = init_dynamic_lstm_cond(options, params, prefix='decoder',
                                        nin=lstm_cond_ndim, dim=options['dim'],
-                                       dimctx=ctx_dim, trainable = True)
+                                       dimctx=ctx_dim, trainable = trainable)
     # potentially deep decoder (warning: should work but somewhat untested)
     if options['n_layers_lstm'] > 1:
         for lidx in xrange(1, options['n_layers_lstm']):
-            params = init_fflayer(options, params, prefix='ff_state_%d'%lidx, nin=options['dim'], nout=options['dim'], trainable = True)
-            params = init_fflayer(options, params, prefix='ff_memory_%d'%lidx, nin=options['dim'], nout=options['dim'], trainable = True)
+            params = init_fflayer(options, params, prefix='ff_state_%d'%lidx, nin=options['dim'], nout=options['dim'], trainable = trainable)
+            params = init_fflayer(options, params, prefix='ff_memory_%d'%lidx, nin=options['dim'], nout=options['dim'], trainable = trainable)
             params = init_dynamic_lstm_cond(options, params, prefix='decoder_%d'%lidx,
                                                nin=options['dim'], dim=options['dim'],
-                                               dimctx=ctx_dim, trainable = True)
+                                               dimctx=ctx_dim, trainable = trainable)
     # readout: [equation (7)]
     params = init_fflayer(options, params, prefix='ff_logit_lstm', nin=options['dim'], 
-                                nout=options['dim_word'], trainable = True)
+                                nout=options['dim_word'], trainable = trainable)
     if options['ctx2out']:
         params = init_fflayer(options, params, prefix='ff_logit_ctx', nin=ctx_dim, 
-                                    nout=options['dim_word'], trainable = True)
+                                    nout=options['dim_word'], trainable = trainable)
     if options['n_layers_out'] > 1:
         for lidx in xrange(1, options['n_layers_out']):
             params = init_fflayer(options, params, prefix='ff_logit_h%d'%lidx, 
-                                        nin=options['dim_word'], nout=options['dim_word'], trainable = True)
+                                        nin=options['dim_word'], nout=options['dim_word'], trainable = trainable)
     params = init_fflayer(options, params, prefix='ff_logit', nin=options['dim_word'], 
-                                nout=options['n_words'], trainable = True)
+                                nout=options['n_words'], trainable = trainable)
 
     return params
 
 
-      
 # build a training model
-def build_model(tparams, options, sampling=True):
+def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
     """ Builds the entire computational graph used for training
 
     [This function builds a model described in Section 3.1.2 onwards
@@ -101,7 +100,7 @@ def build_model(tparams, options, sampling=True):
     options['regularizers'] = []
     
     rng = T.RandomStreams(1234)
-    use_noise = T.shared(np.float32(0.))
+    #use_noise = T.shared(np.float32(0.))
 
     if options['debug'] == 1:
         # start of debuging
@@ -150,7 +149,7 @@ def build_model(tparams, options, sampling=True):
         ctx_mean = fflayer(tparams, ctx_mean, options,
                                       prefix='ff_init_%d'%lidx, activ='rectifier')
         if options['use_dropout']:
-            ctx_mean = dropout_layer(ctx_mean, use_noise, rng = rng)
+            ctx_mean = dropout_layer(ctx_mean, rng = rng, dropoutrate = dropoutrate)
 
     init_state = fflayer(tparams, ctx_mean, options, prefix='ff_state', activ='tanh')
     init_memory = fflayer(tparams, ctx_mean, options, prefix='ff_memory', activ='tanh')
@@ -193,7 +192,7 @@ def build_model(tparams, options, sampling=True):
         sels = proj[5]
 
     if options['use_dropout']:
-        proj_h = dropout_layer(proj_h, use_noise, rng=rng)
+        proj_h = dropout_layer(proj_h, rng=rng, dropoutrate = dropoutrate)
 
     # compute word probabilities
     # [equation (7)]
@@ -204,12 +203,12 @@ def build_model(tparams, options, sampling=True):
         logit += fflayer(tparams, ctxs, options, prefix='ff_logit_ctx', activ='linear')
     logit = tanh(logit)
     if options['use_dropout']:
-        logit = dropout_layer(logit, use_noise, rng=rng)
+        logit = dropout_layer(logit, rng=rng, dropoutrate = dropoutrate)
     if options['n_layers_out'] > 1:
         for lidx in xrange(1, options['n_layers_out']):
             logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activ='rectifier')
             if options['use_dropout']:
-                logit = dropout_layer(logit, use_noise, rng=rng)
+                logit = dropout_layer(logit, rng=rng, dropoutrate = dropoutrate)
 
     # compute softmax
     logit = fflayer(tparams, logit, options, prefix='ff_logit', activ='linear')
@@ -232,10 +231,10 @@ def build_model(tparams, options, sampling=True):
         opt_outs['masked_cost'] = masked_cost # need this for reinforce later
         opt_outs['attn_updates'] = attn_updates # this is to update the rng
 
-    return rng, use_noise, [x, mask, ctx], alphas, alpha_sample, cost, opt_outs
+    return rng,  [x, mask, ctx], alphas, alpha_sample, cost, opt_outs
 
 # build a sampler
-def build_sampler(tparams, options, use_noise, rng, sampling=True):
+def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
     """ Builds a sampler used for generating from the model
     Parameters
     ----------
@@ -250,6 +249,7 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
         Takes the previous word/state/memory + ctx0 and runs ne
         step through the lstm (used for beam search)
     """
+    
     if options['debug'] == 1:
         # start of debuging
         from Core.train import  get_dataset
@@ -288,7 +288,7 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
         ctx_mean = fflayer(tparams, ctx_mean, options,
                                       prefix='ff_init_%d'%lidx, activ='rectifier')
         if options['use_dropout']:
-            ctx_mean = dropout_layer(ctx_mean, use_noise, rng=rng)
+            ctx_mean = dropout_layer(ctx_mean, rng=rng, dropoutrate = dropoutrate)
     init_state = [fflayer(tparams, ctx_mean, options, prefix='ff_state', activ='tanh')]
     init_memory = [fflayer(tparams, ctx_mean, options, prefix='ff_memory', activ='tanh')]
     if options['n_layers_lstm'] > 1:
@@ -318,8 +318,10 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
             init_memory.append(T.matrix('init_memory', dtype='float32'))
    
     # for the first word (which is coded with -1), emb should be all zero
-    emb = T.switch(x[:,None] < 0, T.alloc(0., 1, tparams['Wemb'].shape[1]),
-                        tparams['Wemb'][x])
+    #emb = T.switch(x[:,None] < 0, T.alloc(0., 1, tparams['Wemb'].shape[1]),
+    #                    tparams['Wemb'][x])
+    emb = embeding_layer(tparams, x, options, prefix='embeding',dropout=None,
+                    specifier=-1,filled_value=0.)
 
     proj = dynamic_lstm_cond_layer(tparams, emb, options,
                                      prefix='decoder',
@@ -350,7 +352,7 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
             proj_h = proj[0]
 
     if options['use_dropout']:
-        proj_h = dropout_layer(proj[0], use_noise, rng=rng)
+        proj_h = dropout_layer(proj[0], rng=rng, dropoutrate = dropoutrate)
     else:
         proj_h = proj[0]
     logit = fflayer(tparams, proj_h, options, prefix='ff_logit_lstm', activ='linear')
@@ -360,12 +362,12 @@ def build_sampler(tparams, options, use_noise, rng, sampling=True):
         logit += fflayer(tparams, ctxs[-1], options, prefix='ff_logit_ctx', activ='linear')
     logit = tanh(logit)
     if options['use_dropout']:
-        logit = dropout_layer(logit, use_noise, rng=rng)
+        logit = dropout_layer(logit, rng=rng, dropoutrate = dropoutrate)
     if options['n_layers_out'] > 1:
         for lidx in xrange(1, options['n_layers_out']):
             logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activ='rectifier')
             if options['use_dropout']:
-                logit = dropout_layer(logit, use_noise, rng=rng)
+                logit = dropout_layer(logit, rng=rng, dropoutrate = dropoutrate)
     logit = fflayer(tparams, logit, options, prefix='ff_logit', activ='linear')
     logit_shp = logit.shape
     next_probs = T.softmax(logit)

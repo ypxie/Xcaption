@@ -6,7 +6,7 @@ import numpy as np
 from utils import activations, initializations, regularizers
 
 # dropout in theano
-def dropout_layer(state_before, use_noise, rng =None,p=0.5):
+def dropout_layer(state_before, rng =None,dropoutrate=0.5):
     """
     tensor switch is like an if statement that checks the
     value of the theano shared variable (use_noise), before
@@ -14,54 +14,59 @@ def dropout_layer(state_before, use_noise, rng =None,p=0.5):
     computing the appropriate activation. During training/testing
     use_noise is toggled on and off.
     """
-    proj = T.switch(use_noise,
-                         state_before *
-                         T.binomial(shape = state_before.shape, p=p, n=1,dtype=state_before.dtype,rng = rng),
-                         state_before * p)
+    if 0. < dropoutrate < 1.:
+        retain_p = 1. - dropoutrate
+        B = T.binomial(shape = state_before.shape, p=p, n=1,dtype=state_before.dtype,rng = rng) * (1. / retain_p)
+        proj = T.in_train_phase(state_before * B, state_before)
     return proj
+    # proj = T.switch(use_noise,
+    #                      state_before *
+    #                      T.binomial(shape = state_before.shape, p=p, n=1,dtype=state_before.dtype,rng = rng),
+    #                      state_before * p)
+    # return proj
 
-    params['Wemb'] = norm_weight(options['n_words'], options['dim_word'])
+    
 
 #embeding layer
 def init_embeding(options, params, prefix='embeding',input_dim=None,
                   output_dim=None, init='normal',trainable=True):
-''''
-    Turn positive integers (indexes) into dense vectors of fixed size.
-    eg. [[4], [20]] -> [[0.25, 0.1], [0.6, -0.2]]
-# Arguments: copy from keras 
-      input_dim: int > 0. Size of the vocabulary, ie.
-          1 + maximum integer index occurring in the input data.
-      output_dim: int >= 0. Dimension of the dense embedding.
-      init: name of initialization function for the weights
-          of the layer (see: [initializations](../initializations.md)),
-          or alternatively, Theano function to use for weights initialization.
-          This parameter is only relevant if you don't pass a `weights` argument.
-      weights: list of Numpy arrays to set as initial weights.
-          The list should have 1 element, of shape `(input_dim, output_dim)`.
-      W_regularizer: instance of the [regularizers](../regularizers.md) module
-        (eg. L1 or L2 regularization), applied to the embedding matrix.
-      W_constraint: instance of the [constraints](../constraints.md) module
-          (eg. maxnorm, nonneg), applied to the embedding matrix.
-      mask_zero: Whether or not the input value 0 is a special "padding"
-          value that should be masked out.
-          This is useful for [recurrent layers](recurrent.md) which may take
-          variable length input. If this is `True` then all subsequent layers
-          in the model need to support masking or an exception will be raised.
-          If mask_zero is set to True, as a consequence, index 0 cannot be
-          used in the vocabulary (input_dim should equal |vocabulary| + 2).
-      input_length: Length of input sequences, when it is constant.
-          This argument is required if you are going to connect
-          `Flatten` then `Dense` layers upstream
-          (without it, the shape of the dense outputs cannot be computed).
-      dropout: float between 0 and 1. Fraction of the embeddings to drop.
-'''
+    '''
+        Turn positive integers (indexes) into dense vectors of fixed size.
+        eg. [[4], [20]] -> [[0.25, 0.1], [0.6, -0.2]]
+      # Arguments: copy from keras 
+          input_dim: int > 0. Size of the vocabulary, ie.
+              1 + maximum integer index occurring in the input data.
+          output_dim: int >= 0. Dimension of the dense embedding.
+          init: name of initialization function for the weights
+              of the layer (see: [initializations](../initializations.md)),
+              or alternatively, Theano function to use for weights initialization.
+              This parameter is only relevant if you don't pass a `weights` argument.
+          weights: list of Numpy arrays to set as initial weights.
+              The list should have 1 element, of shape `(input_dim, output_dim)`.
+          W_regularizer: instance of the [regularizers](../regularizers.md) module
+            (eg. L1 or L2 regularization), applied to the embedding matrix.
+          W_constraint: instance of the [constraints](../constraints.md) module
+              (eg. maxnorm, nonneg), applied to the embedding matrix.
+          mask_zero: Whether or not the input value 0 is a special "padding"
+              value that should be masked out.
+              This is useful for [recurrent layers](recurrent.md) which may take
+              variable length input. If this is `True` then all subsequent layers
+              in the model need to support masking or an exception will be raised.
+              If mask_zero is set to True, as a consequence, index 0 cannot be
+              used in the vocabulary (input_dim should equal |vocabulary| + 2).
+          input_length: Length of input sequences, when it is constant.
+              This argument is required if you are going to connect
+              `Flatten` then `Dense` layers upstream
+              (without it, the shape of the dense outputs cannot be computed).
+          dropout: float between 0 and 1. Fraction of the embeddings to drop.
+    '''
     init = initializations.get(init)
     params[get_name(prefix, 'W')] = npwrapper(init(shape=(input_dim,output_dim), symbolic=False),
                                    trainable = trainable)
                                 
     return params
-def embeding_layer(tparams, x, options, prefix='embeding',dropout=None,
-                    specifier=-1,filled_value=0., **kwargs):
+def embeding_layer(tparams, x, options, prefix='embeding',dropoutrate=None,
+                    specifier=None,filled_value=0., **kwargs):
     '''
     Gather weights from W based on index of x. The output should be one dimension
     higher than x, eg, if W = (100,128), x=(10,10,10), output will be (10,10,10,128).
@@ -75,15 +80,17 @@ def embeding_layer(tparams, x, options, prefix='embeding',dropout=None,
     '''
     W = tparams[get_name(prefix,'W')]
     if 0. < dropout < 1.:
-        retain_p = 1. - self.dropout
-        B = T.binomial(shape=(self.input_dim,), p=retain_p) * (1. / retain_p)
+        retain_p = 1. - dropoutrate
+        B = T.binomial(shape=(W.shape[0],), p=retain_p) * (1. / retain_p)
         B = T.expand_dims(B)
-        W = T.in_train_phase(self.W * B, self.W)
+        W = T.in_train_phase(W * B, W)
+    
+    if specifier is not None:
+        filled_shape = [1 for _ in range(len(x.shape))] + [W.shape[-1]]
+        emb = T.switch(x[...,None] == specifier, T.alloc(filled_value,*filled_shape),
+                            W[x])
     else:
-        W = self.W
-    filled_shape = [1 for _ in range(len(x.shape))] + [W.shape[-1]]
-    emb = T.switch(x[...,None] == specifier, T.alloc(filled_value,*filled_shape),
-                        W[x])
+        emb = W[x]
     return emb
     
 # feedforward layer: affine transformation + point-wise nonlinearity

@@ -33,6 +33,18 @@ class npwrapper(np.ndarray):
         # then just call the parent
         return np.ndarray.__array_wrap__(self, out_arr, context)
 
+def variable(value, dtype=_FLOATX, name=None):
+    '''Instantiate a tensor variable.
+    '''
+    value = npwrapper(np.asarray(value, dtype=dtype))
+    return value
+
+def gradients(loss, variables, **kwargs):
+    '''Pretending to do gradient but actually do nothing. :)
+    '''
+    return variables
+
+
 def learning_phase():
     # False = test, True = train
     return _LEARNING_PHASE
