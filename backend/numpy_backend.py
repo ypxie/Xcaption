@@ -295,6 +295,8 @@ def scan(fn,
             # with an empty OrdereDict() to simplify handling
             outs_info[i] = OrderedDict()
 
+
+
     ##
     # Step 2. Generate inputs and outputs of the inner functions
     # for compiling a dummy function (Iteration #1)
@@ -311,24 +313,18 @@ def scan(fn,
     scan_seqs = []     # Variables passed as inputs to the scan op
     inner_seqs = []    # Variables passed as inputs to the inner function
     inner_slices = []  # Actual slices if scan is removed from the picture
-    # go through sequences picking up time slices as needed
-    for i, seq in enumerate(seqs):
-        # Note that you can have something like no taps for
-        # a sequence, though is highly unlikely in practice
+    
+    actual_looping_size = np.inf # find the least looping size, this is used to allocate the size of output
+    for i,seq in enumerate(seqs):
         if 'taps' in seq:
             # go through the indicated slice
             mintap = np.min(seq['taps'])
             maxtap = np.max(seq['taps'])
-            for k in seq['taps']:
-                # create one slice of the input
-                # Later on, if we decide not to use scan because we are
-                # going for just one step, it makes things easier if we
-                # compute the correct outputs here. This way we can use
-                # the output of the lambda expression directly to replace
-                # the output of scan.
-
-                # If not we need to use copies, that will be replaced at
-                # each frame by the corresponding slice
+            
+            this_length = seq['input'].shape[0] - abs(mintap) - abs(maxtap)
+            actual_looping_size = min(actual_looping_size, this_length)
+    
+            for k in seq['taps']:           
                 actual_slice = seq['input'][k - mintap]
                 _seq_val = seq['input'] #tensor.as_tensor_variable(seq['input'])
                 _seq_val_slice = _seq_val[k - mintap]
@@ -564,5 +560,8 @@ def scan(fn,
         as_while = True
     else:
         as_while = False
+    
+    # now we know the size of one single slice of output.
+    actual_looping_size
 
     return outputs, updates
