@@ -110,7 +110,7 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
     else:
        drop_state_below = state_below
 
-    state_below = K.in_train_phase(drop_state_below, state_below)
+    state_below = T.in_train_phase(drop_state_below, state_below)
     state_below = T.dot(state_below, tparams[get_name(prefix, 'W')]) + tparams[get_name(prefix, 'b')]
 
     rval, updates =    T.scan(  _step,
@@ -216,8 +216,6 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
       options: model configuration
     Returns
     -------
-    
-
     '''
     def get_dropout(shapelist=[None,None,None,None], dropoutrate = 0):
         #if self.seed is None:
@@ -228,10 +226,9 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
           W1 = T.binomial(shape= shapelist[0], p = retain_prob, dtype = T.floatX)/retain_prob
           W2 = T.binomial(shape= shapelist[1], p = retain_prob, dtype = T.floatX)/retain_prob
           W3 = T.binomial(shape= shapelist[2], p = retain_prob, dtype = T.floatX)/retain_prob
-          W4 = T.binomial(shape= shapelist[3], p = retain_prob, dtype = T.floatX)/retain_prob
-          return [W1,[W2,W3,W4]]
+          return [W1,[W2,W3]]
         else:
-          return [None, [None,None,None]]
+          return [None, [None,None]]
 
     activation = activations.get(activation)
     inner_activation = activations.get(inner_activation)
@@ -274,17 +271,17 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
     # this is n * d during sampling
     batchsize = state_below.shape[1]
     w_shape   = (1,batchsize, state_below.shape[2])
-    att_shape = (1,batchsize, tparams[get_name(prefix,'Wd_att')].shape[0])
+    #att_shape = (1,batchsize, tparams[get_name(prefix,'Wd_att')].shape[0])
     u_shape   = (1, batchsize, tparams[get_name(prefix, 'U')].shape[0])
     ctx_shape = (1, batchsize, tparams[get_name(prefix, 'Wc')].shape[0])
 
-    dropoutmatrix = get_dropout(shapelist = [w_shape,att_shape,u_shape,ctx_shape], dropoutrate=options['lstm_dropout'])
+    dropoutmatrix = get_dropout(shapelist = [w_shape,u_shape,ctx_shape], dropoutrate=options['lstm_dropout'])
 
     if dropoutmatrix[0] is not None:
        drop_state_below = state_below * dropoutmatrix[0]
     else:
        drop_state_below = state_below
-    state_below = K.in_train_phase(drop_state_below, state_below)
+    state_below = T.in_train_phase(drop_state_below, state_below)
     state_below = T.dot(state_below, tparams[get_name(prefix, 'W')]) + tparams[get_name(prefix, 'b')]
 
     # additional parameters for stochastic hard attention
@@ -396,12 +393,13 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
             # attention computation
             # [described in  equations (4), (5), (6) in
             # section "3.1.2 Decoder: Long Short Term Memory Network]
-            if dropoutmatrix[0] is not None:
-                drop_h_ = h_ *dropoutmatrix[0]
-            else:
-                drop_h_ = h_
-            pstate_ = T.dot(T.in_train_phase(drop_h_, h_), tparams[get_name(prefix,'Wd_att')])
 
+            # if dropoutmatrix[0] is not None:
+            #     drop_h_ = h_ *dropoutmatrix[0]
+            # else:
+            #     drop_h_ = h_
+            # pstate_ = T.dot(T.in_train_phase(drop_h_, h_), tparams[get_name(prefix,'Wd_att')])
+            pstate_ = T.dot(h_, tparams[get_name(prefix,'Wd_att')])
             pctx_ = pctx_ + pstate_[:,None,:]
             pctx_list.append(pctx_)
             pctx_ = T.tanh(pctx_)  #pctx_ is no longer pctx_list[0] anymore.
@@ -434,11 +432,8 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
 
 
         #applied bayesian LSTM
-        if dropoutmatrix[1] is not None:
-            drop_h_ = h_ *dropoutmatrix[1]
-        else:
-            drop_h_ = h_
-        drop_ctx_ = ctx_ *dropoutmatrix[2] if dropoutmatrix[2] is not None else ctx_
+        drop_h_   =   h_ *dropoutmatrix[0] if dropoutmatrix[0] is not None else h_
+        drop_ctx_ = ctx_ *dropoutmatrix[1] if dropoutmatrix[1] is not None else ctx_
 
         preact = T.dot(T.in_train_phase(drop_h_, h_), tparams[get_name(prefix, 'U')])
         preact += x_
@@ -489,8 +484,8 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
         outputs_info = [init_state,                               # h
                         init_memory,                              # c
                         T.alloc(0., n_samples, pctx_.shape[1]),   # a_
-                        T.alloc(0., n_samples, pctx_.shape[1]),   # as_
-                        T.alloc(0., n_samples, context.shape[2])] # pctx_
+                        T.alloc(0., n_samples, pctx_.shape[1])]   # as_
+                        #T.alloc(0., n_samples, context.shape[2])] # ct_
 
         
         if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':

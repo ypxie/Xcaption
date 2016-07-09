@@ -7,10 +7,10 @@ from collections import OrderedDict
 from backend.scan_utils import *
 _logger = logging.getLogger('theano.scan_module.scan')
 _FLOATX = 'float32'
-
+floatX = _FLOATX
 dimshuffle = np.transpose
 _LEARNING_PHASE = np.zeros((1))
-
+_EPSILON = 1e-9
 class npwrapper(np.ndarray):
     '''usage: to append trainable attr to numpy object in layer initialization
        eg: b = npwrapper(np.arange(5), trainable=False) '''
@@ -32,7 +32,7 @@ class npwrapper(np.ndarray):
         #print('   arr is %s' % repr(out_arr))
         # then just call the parent
         return np.ndarray.__array_wrap__(self, out_arr, context)
-
+ 
 def variable(value, dtype=_FLOATX, name=None):
     '''Instantiate a tensor variable.
     '''
@@ -60,24 +60,7 @@ def function(inputlist, outputlist,**kwargs):
     pass
 
 
-def switch(condition, then_expression, else_expression):
-    '''condition: scalar tensor.
-    '''
-    return np.where(condition, then_expression, else_expression)
 
-def relu(x, alpha=0., max_value=None):
-    x = switch(x>0, x, alpha*x)
-    if max_value is not None:
-        x = np.minimum(x, max_value)
-    return x
-    
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-  
-def softmax(x):
-    """Compute softmax values for each sets of scores in x."""
-    e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum()
 
 def RandomStreams(seed = 1234):
     a = np.random
@@ -190,7 +173,188 @@ def shape_padaxis(t, axis):
     pattern = [t.shape[i] for i in xrange(t.ndim)]
     pattern.insert(axis, 1)
     return np.reshape(t,pattern)
+def shape(x):
+    '''Return the shape of a tensor.
 
+    Warning: type returned will be different for
+    Theano backend (Theano tensor type) and TF backend (TF TensorShape).
+    '''
+    return x.shape
+def ndim(x):
+    return x.ndim
+
+
+def dtype(x):
+    return x.dtype
+
+
+def eval(x):
+    '''Run a graph.
+    '''
+    return x
+def ones_like(x):
+    return ones(x.shape)
+
+
+def zeros_like(x):
+    return zeros(x.shape)
+
+
+def count_params(x):
+    '''Return number of scalars in a tensor.
+
+    Return: numpy integer.
+    '''
+    return np.prod(x.shape)
+
+
+def cast(x, dtype):
+    return cast(x, dtype)
+
+def gather(reference, indices):
+    '''reference: a tensor.
+    indices: an int tensor of indices.
+
+    Return: a tensor of same type as reference.
+    '''
+    return reference[indices]
+
+
+
+def clip(x, min_value, max_value):
+    if max_value < min_value:
+        max_value = min_value
+    return np.clip(x, min_value, max_value)
+
+
+def equal(x, y):
+    return np.equal(x, y)
+
+
+def not_equal(x, y):
+    return np.not_equal(x, y)
+
+
+def permute_dimensions(x, pattern):
+    '''Transpose dimensions.
+
+    pattern should be a tuple or list of
+    dimension indices, e.g. [0, 2, 1].
+    '''
+    pattern = tuple(pattern)
+    return x.transpose(pattern)
+
+def repeat_elements(x, rep, axis):
+    '''Repeat the elements of a tensor along an axis, like np.repeat.
+
+    If x has shape (s1, s2, s3) and axis=1, the output
+    will have shape (s1, s2 * rep, s3).
+    '''
+    return np.repeat(x, rep, axis=axis)
+
+def resize_images(X, height_factor, width_factor, dim_ordering):
+    '''Resize the images contained in a 4D tensor of shape
+    - [batch, channels, height, width] (for 'th' dim_ordering)
+    - [batch, height, width, channels] (for 'tf' dim_ordering)
+    by a factor of (height_factor, width_factor). Both factors should be
+    positive integers.
+    '''
+    if dim_ordering == 'th':
+        output = repeat_elements(X, height_factor, axis=2)
+        output = repeat_elements(output, width_factor, axis=3)
+        return output
+    elif dim_ordering == 'tf':
+        output = repeat_elements(X, height_factor, axis=1)
+        output = repeat_elements(output, width_factor, axis=2)
+        return output
+    else:
+        raise Exception('Invalid dim_ordering: ' + dim_ordering)
+
+def repeat(x, n):
+    '''Repeat a 2D tensor.
+
+    If x has shape (samples, dim) and n=2,
+    the output will have shape (samples, 2, dim).
+    '''
+    assert x.ndim == 2
+    x = x[:,np.newaxis,:]
+    return np.repeat(x, n, axis=1)
+    
+def batch_flatten(x):
+    '''Turn a n-D tensor into a 2D tensor where
+    the first dimension is conserved.
+    '''
+    x = np.reshape(x, (x.shape[0], np.prod(x.shape) // x.shape[0]))
+    return x
+
+def pack(x):
+    return np.stack(*x)
+
+def switch(condition, then_expression, else_expression):
+    '''condition: scalar tensor.
+    '''
+    return np.where(condition, then_expression, else_expression)
+
+def relu(x, alpha=0., max_value=None):
+    x = switch(x>0, x, alpha*x)
+    if max_value is not None:
+        x = np.minimum(x, max_value)
+    return x
+    
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+  
+def softmax(x):
+    """Compute softmax values for each sets of scores in x."""
+    e_x = np.exp(x - np.max(x))
+    return e_x / e_x.sum()
+
+def hard_sigmoid(x):
+    return sigmoid(x)
+
+def softplus(x):
+    return log(1+exp(x))
+
+
+def softsign(x):
+    return x/(1+abs(x))
+
+
+def categorical_crossentropy(output, target, from_logits=False):
+    if from_logits:
+        output = softmax(output)
+    else:
+        # scale preds so that the class probas of each sample sum to 1
+        output /= output.sum(axis=-1, keepdims=True)
+    # avoid numerical instability with _EPSILON clipping
+    output = clip(output, _EPSILON, 1.0 - _EPSILON)
+    return T.nnet.categorical_crossentropy(output, target)
+
+
+def sparse_categorical_crossentropy(output, target, from_logits=False):
+    target = T.cast(T.flatten(target), 'int32')
+    target = T.extra_ops.to_one_hot(target, nb_class=output.shape[-1])
+    target = reshape(target, shape(output))
+    return np.sum(-target*log(output))
+    
+
+
+def binary_crossentropy(output, target, from_logits=False):
+    if from_logits:
+        output = sigmoid(output)
+    # avoid numerical instability with _EPSILON clipping
+    output = clip(output, _EPSILON, 1.0 - _EPSILON)
+    return np.sum(- target*log(output) - ( (1-target)*log(1-output) ))
+
+
+
+
+def l2_normalize(x, axis):
+    norm = np.sqrt(np.sum(np.square(x), axis=axis, keepdims=True))
+    return x / norm
+
+
+    
 def scan(fn,
          sequences=None,
          outputs_info=None,
@@ -559,7 +723,7 @@ def scan(fn,
     # when we apply the lambda expression we get a mixture of update rules
     # and outputs that needs to be separated
     
-    condition, outputs, updates = scan_utils.get_updates_and_outputs(fn(*args))
+    condition, outputs, updates = get_updates_and_outputs(fn(*args))
     if condition is not None:
         as_while = True
     else:
