@@ -100,8 +100,8 @@ if __name__ == "__main__":
                 "learning_rate": 0.01,
                 "optimizer": "adam",
                 "selector": True,
-                "use_dropout": True,
-                "use_dropout_lstm": False,
+                "use_dropout": 0.5,
+                "lstm_dropout": 0.5,
                 "save_per_epoch": False,
                 "reload": True,
                 "valid_batch_size":2,
@@ -115,7 +115,7 @@ if __name__ == "__main__":
                 "dataset": "flickr30k",
                 "data_path" : data_path,
                 "debug" : True
-                 }
+                 } 
     # get updates from command line
     args = parser.parse_args()
     for change in args.changes:

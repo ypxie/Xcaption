@@ -13,7 +13,6 @@ more detailed explanations in the above paper.
 #import theano.tensor as tensor
 #from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
-import theano
 import backend.export as T
 from fuel.homogeneous_data import HomogeneousData
 from fuel import datasets
@@ -30,7 +29,6 @@ from sklearn.cross_validation import KFold
 import warnings
 # [see Section (4.3) for explanation]
 
-
 # supported optimizers
 
 
@@ -46,7 +44,7 @@ def validate_options(options):
     if options['lstm_encoder']:
         warnings.warn('Note that this is a 1-D bidirectional LSTM, not 2-D one.')
 
-    if options['use_dropout_lstm']:
+    if options['lstm_dropout']:
         warnings.warn('dropout in the lstm seems not to help')
 
     # Other checks:
@@ -55,6 +53,48 @@ def validate_options(options):
 
     return options
 
+def pred_probs(f_log_probs, options, worddict, prepare_data, data, iterator, verbose=False, train=0):
+    """ Get log probabilities of captions
+    Parameters
+    ----------
+    f_log_probs : theano function
+        compute the log probability of a x given the context
+    options : dict
+        options dictionary
+    worddict : dict
+        maps words to one-hot encodings
+    prepare_data : function
+        see corresponding dataset class for details
+    data : np array
+        output of load_data, see corresponding dataset class
+    iterator : KFold
+        indices from scikit-learn KFold
+    verbose : boolean
+        if True print progress
+    Returns
+    -------
+    probs : np array
+        array of log probabilities indexed by example
+    """
+    n_samples = len(data[0])
+    probs = np.zeros((n_samples, 1)).astype('float32')
+
+    n_done = 0
+
+    for _, valid_index in iterator:
+        x, mask, ctx = prepare_data([data[0][t] for t in valid_index],
+                                     data[1],
+                                     worddict,
+                                     maxlen=None,
+                                     n_words=options['n_words'])
+        pred_probs = f_log_probs(x,mask,ctx,train)
+        probs[valid_index] = pred_probs[:,None]
+
+        n_done += len(valid_index)
+        if verbose:
+            print '%d/%d samples computed'%(n_done,n_samples)
+
+    return probs
 
 """Note: all the hyperparameters are stored in a dictionary model_options (or options outside train).
    train() then proceeds to do the following:
@@ -98,9 +138,9 @@ def train(dim_word=100,  # word vector dimensionality
           sampleFreq=100,  # generate some samples after every sampleFreq updates
           dataset='flickr8k',
           data_path = '../Data/TrainingData/flickr8k',
-          dictionary=None,  # word dictionary
-          use_dropout=False,  # setting this true turns on dropout at various points
-          use_dropout_lstm=False,  # dropout on lstm gates
+          dictionary= None,  # word dictionary
+          use_dropout= 0.5,  # setting this true turns on dropout at various points
+          lstm_dropout= None,  # dropout on lstm gates
           reload_=False,
           save_per_epoch=False, debug = True, **kwargs): # this saves down the model every epoch
 
@@ -143,14 +183,13 @@ def train(dim_word=100,  # word vector dimensionality
 
     tparams = init_tparams(params)
     trainable_param = OrderedDict()
-    for k, v in tparams:
+    for k, v in tparams.iteritems():
         if v.trainable:
            trainable_param[k] = v
 
     import time
     time_start = time.time()
-    rng, use_noise, \
-          inps, alphas, alphas_sample,\
+    rng,inps, alphas, alphas_sample,\
           cost, \
           opt_outs = \
           build_model(tparams, model_options)
@@ -160,10 +199,11 @@ def train(dim_word=100,  # word vector dimensionality
     # the LSTM at time 0 [see top right of page 4], 2) f_next returns the distribution over
     # words and also the new "initial state/memory" see equation
     print 'Buliding sampler'
-    f_init, f_next = build_sampler(tparams, model_options, use_noise, rng)
+    f_init, f_next = build_sampler(tparams, model_options, rng)
 
     # we want the cost without any the regularizers
-    f_log_probs = theano.function(inps, -cost, profile=False,
+    inps += [T.learning_phase()] 
+    f_log_probs = T.function(inps, -cost, profile=False,
                                         updates=opt_outs['attn_updates']
                                         if model_options['attn_type']=='stochastic'
                                         else None)
@@ -191,9 +231,9 @@ def train(dim_word=100,  # word vector dimensionality
         grads = T.grad(cost, wrt=itemlist(trainable_param))
     else:
         # shared variables for hard attention
-        baseline_time = theano.shared(np.float32(0.), name='baseline_time')
+        baseline_time = T.shared(np.float32(0.), name='baseline_time')
         opt_outs['baseline_time'] = baseline_time
-        alpha_entropy_c = theano.shared(np.float32(alpha_entropy_c), name='alpha_entropy_c')
+        alpha_entropy_c = T.shared(np.float32(alpha_entropy_c), name='alpha_entropy_c')
         alpha_entropy_reg = alpha_entropy_c * (alphas*T.log(alphas)).mean()
         # [see Section 4.1: Stochastic "Hard" Attention for derivation of this learning rule]
         if model_options['RL_sumCost']:
@@ -217,8 +257,18 @@ def train(dim_word=100,  # word vector dimensionality
 
     # f_grad_shared computes the cost and updates adaptive learning rate variables
     # f_update updates the weights of the model
-    lr = T.scalar(name='lr')
-    f_grad_shared, f_update = eval(optimizer)(lr, trainable_param, grads, inps, cost, hard_attn_updates)
+
+    #lr = T.scalar(name='lr')
+    #opt = optimizers.get(optimizer)
+    opt = eval(optimizer)(lr=lrate)
+
+    #opt = Adadelta(lr=lrate, rho=0.95, epsilon=1e-06)
+    training_updates = opt.get_updates(trainable_param,grads)
+
+    updates = hard_attn_updates + training_updates
+    f_train = T.function(inps,cost, updates=updates)
+
+    #f_grad_shared, f_update = eval(optimizer)(lr, trainable_param, grads, inps, cost, hard_attn_updates)
 
     total_time = time.time() - time_start
     print "Building Model takes {}".format(total_time)
@@ -280,8 +330,9 @@ def train(dim_word=100,  # word vector dimensionality
 
             # get the cost for the minibatch, and update the weights
             ud_start = time.time()
-            cost = f_grad_shared(x, mask, ctx)
-            f_update(lrate)
+            #cost = f_grad_shared(x, mask, ctx, 1)
+            #f_update(lrate)
+            cost = f_train(x,mask,ctx,1.0)
             ud_duration = time.time() - ud_start # some monitoring for each mini-batch
 
             # Numerical stability check
@@ -307,7 +358,8 @@ def train(dim_word=100,  # word vector dimensionality
             # Print a generated sample as a sanity check
             if np.mod(uidx, sampleFreq) == 0:
                 # turn off dropout first
-                use_noise.set_value(0.)
+                #use_noise.set_value(0.)
+                #K.set_learning_phase(0.)
                 x_s = x
                 mask_s = mask
                 ctx_s = ctx
@@ -338,15 +390,15 @@ def train(dim_word=100,  # word vector dimensionality
 
             # Log validation loss + checkpoint the model with the best validation log likelihood
             if np.mod(uidx, validFreq) == 0:
-                use_noise.set_value(0.)
+                #use_noise.set_value(0.)
                 train_err = 0
                 valid_err = 0
                 test_err = 0
 
                 if valid:
-                    valid_err = -pred_probs(f_log_probs, model_options, worddict, prepare_data, valid, kf_valid).mean()
+                    valid_err = -pred_probs(f_log_probs, model_options, worddict, prepare_data, valid, kf_valid, train=0).mean()
                 if test:
-                    test_err = -pred_probs(f_log_probs, model_options, worddict, prepare_data, test, kf_test).mean()
+                    test_err = -pred_probs(f_log_probs, model_options, worddict, prepare_data, test, kf_test,train=0).mean()
 
                 history_errs.append([valid_err, test_err])
 
@@ -381,7 +433,7 @@ def train(dim_word=100,  # word vector dimensionality
     if best_p is not None:
         zipp(best_p, tparams)
 
-    use_noise.set_value(0.)
+    #use_noise.set_value(0.)
     train_err = 0
     valid_err = 0
     test_err = 0

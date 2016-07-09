@@ -3,7 +3,7 @@ import numpy as np
 
 import backend.export as T
 from collections import OrderedDict
-from Core.common import npwrapper
+from backend.export import npwrapper
 
 def wta(X):
     M = T.max(X, axis=-1, keepdims=True)
