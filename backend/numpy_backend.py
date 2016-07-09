@@ -7,22 +7,60 @@ from collections import OrderedDict
 from backend.scan_utils import *
 _logger = logging.getLogger('theano.scan_module.scan')
 _FLOATX = 'float32'
+floatX = _FLOATX
+dimshuffle = np.transpose
+_LEARNING_PHASE = np.zeros((1))
+_EPSILON = 1e-9
+class npwrapper(np.ndarray):
+    '''usage: to append trainable attr to numpy object in layer initialization
+       eg: b = npwrapper(np.arange(5), trainable=False) '''
+    def __new__(cls, input_array, trainable=True):
+        obj = np.asarray(input_array).view(cls)
+        obj.trainable = trainable
+        return obj 
+
+    def __array_finalize__(self, obj):
+        #print('In __array_finalize__:')
+        #print('   self is %s' % repr(self))
+        #print('   obj is %s' % repr(obj))
+        if obj is None: return
+        self.trainable = getattr(obj, 'trainable', None)
+
+    def __array_wrap__(self, out_arr, context=None):
+        #print('In __array_wrap__:')
+        #print('   self is %s' % repr(self))
+        #print('   arr is %s' % repr(out_arr))
+        # then just call the parent
+        return np.ndarray.__array_wrap__(self, out_arr, context)
+ 
+def variable(value, dtype=_FLOATX, name=None):
+    '''Instantiate a tensor variable.
+    '''
+    value = npwrapper(np.asarray(value, dtype=dtype))
+    return value
+
+def gradients(loss, variables, **kwargs):
+    '''Pretending to do gradient but actually do nothing. :)
+    '''
+    return variables
+
+
+def learning_phase():
+    # False = test, True = train
+    return _LEARNING_PHASE
+
+def in_train_phase(x, alt):
+    x = switch(_LEARNING_PHASE, x, alt)
+    if not isinstance(x, npwrapper):
+       x = npwrapper(x)
+    x._uses_learning_phase = True
+    return x
 
 def function(inputlist, outputlist,**kwargs):
     pass
-    
-def addAttribute(x, attr=None, value=None):
-    return x
 
-def relu(x):
-    return x * (x > 0)
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-  
-def softmax(x):
-    """Compute softmax values for each sets of scores in x."""
-    e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum()
+
+
 
 def RandomStreams(seed = 1234):
     a = np.random
@@ -69,15 +107,11 @@ def tensor4(name='x', dtype='float32', shape = None):
     x= np.zeros(shape).astype(dtype)
     return x
 
-def switch(cond, a, b):
-    if cond:
-        return a
-    else:
-        return b
-
 def set_subtensor(dest, source):
+    # you can not use return value, since dest can be a indexed tensor which 
+    # might not have a desired shape
     dest = source
-    return dest
+    
     
 def shared(value, name=None, strict=False, allow_downcast=None, **kwargs):
     return value
@@ -89,6 +123,18 @@ def unbroadcast(x, *axes):
 	return x
 def addbroadcast(x, *axes):
 	return x
+
+def expand_dims(x, dim=-1):
+    '''Add a 1-sized dimension at index "dim".
+    '''
+    pattern = [i for i in range(x.type.ndim)]
+    if dim < 0:
+        if x.type.ndim == 0:
+            dim = 0
+        else:
+            dim = dim % x.type.ndim + 1
+    pattern.insert(dim, 'x')
+    return x.transpose(pattern)
 
 def shape_padleft(t, n_ones=1):
     pattern = [1] * n_ones + [t.shape[i] for i in xrange(t.ndim)]
@@ -129,7 +175,188 @@ def shape_padaxis(t, axis):
     pattern = [t.shape[i] for i in xrange(t.ndim)]
     pattern.insert(axis, 1)
     return np.reshape(t,pattern)
+def shape(x):
+    '''Return the shape of a tensor.
 
+    Warning: type returned will be different for
+    Theano backend (Theano tensor type) and TF backend (TF TensorShape).
+    '''
+    return x.shape
+def ndim(x):
+    return x.ndim
+
+
+def dtype(x):
+    return x.dtype
+
+
+def eval(x):
+    '''Run a graph.
+    '''
+    return x
+def ones_like(x):
+    return ones(x.shape)
+
+
+def zeros_like(x):
+    return zeros(x.shape)
+
+
+def count_params(x):
+    '''Return number of scalars in a tensor.
+
+    Return: numpy integer.
+    '''
+    return np.prod(x.shape)
+
+
+def cast(x, dtype):
+    return cast(x, dtype)
+
+def gather(reference, indices):
+    '''reference: a tensor.
+    indices: an int tensor of indices.
+
+    Return: a tensor of same type as reference.
+    '''
+    return reference[indices]
+
+
+
+def clip(x, min_value, max_value):
+    if max_value < min_value:
+        max_value = min_value
+    return np.clip(x, min_value, max_value)
+
+
+def equal(x, y):
+    return np.equal(x, y)
+
+
+def not_equal(x, y):
+    return np.not_equal(x, y)
+
+
+def permute_dimensions(x, pattern):
+    '''Transpose dimensions.
+
+    pattern should be a tuple or list of
+    dimension indices, e.g. [0, 2, 1].
+    '''
+    pattern = tuple(pattern)
+    return x.transpose(pattern)
+
+def repeat_elements(x, rep, axis):
+    '''Repeat the elements of a tensor along an axis, like np.repeat.
+
+    If x has shape (s1, s2, s3) and axis=1, the output
+    will have shape (s1, s2 * rep, s3).
+    '''
+    return np.repeat(x, rep, axis=axis)
+
+def resize_images(X, height_factor, width_factor, dim_ordering):
+    '''Resize the images contained in a 4D tensor of shape
+    - [batch, channels, height, width] (for 'th' dim_ordering)
+    - [batch, height, width, channels] (for 'tf' dim_ordering)
+    by a factor of (height_factor, width_factor). Both factors should be
+    positive integers.
+    '''
+    if dim_ordering == 'th':
+        output = repeat_elements(X, height_factor, axis=2)
+        output = repeat_elements(output, width_factor, axis=3)
+        return output
+    elif dim_ordering == 'tf':
+        output = repeat_elements(X, height_factor, axis=1)
+        output = repeat_elements(output, width_factor, axis=2)
+        return output
+    else:
+        raise Exception('Invalid dim_ordering: ' + dim_ordering)
+
+def repeat(x, n):
+    '''Repeat a 2D tensor.
+
+    If x has shape (samples, dim) and n=2,
+    the output will have shape (samples, 2, dim).
+    '''
+    assert x.ndim == 2
+    x = x[:,np.newaxis,:]
+    return np.repeat(x, n, axis=1)
+    
+def batch_flatten(x):
+    '''Turn a n-D tensor into a 2D tensor where
+    the first dimension is conserved.
+    '''
+    x = np.reshape(x, (x.shape[0], np.prod(x.shape) // x.shape[0]))
+    return x
+
+def pack(x):
+    return np.stack(*x)
+
+def switch(condition, then_expression, else_expression):
+    '''condition: scalar tensor.
+    '''
+    return np.where(condition, then_expression, else_expression)
+
+def relu(x, alpha=0., max_value=None):
+    x = switch(x>0, x, alpha*x)
+    if max_value is not None:
+        x = np.minimum(x, max_value)
+    return x
+    
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+  
+def softmax(x):
+    """Compute softmax values for each sets of scores in x."""
+    e_x = np.exp(x - np.max(x))
+    return e_x / e_x.sum()
+
+def hard_sigmoid(x):
+    return sigmoid(x)
+
+def softplus(x):
+    return log(1+exp(x))
+
+
+def softsign(x):
+    return x/(1+abs(x))
+
+
+def categorical_crossentropy(output, target, from_logits=False):
+    if from_logits:
+        output = softmax(output)
+    else:
+        # scale preds so that the class probas of each sample sum to 1
+        output /= output.sum(axis=-1, keepdims=True)
+    # avoid numerical instability with _EPSILON clipping
+    output = clip(output, _EPSILON, 1.0 - _EPSILON)
+    return T.nnet.categorical_crossentropy(output, target)
+
+
+def sparse_categorical_crossentropy(output, target, from_logits=False):
+    target = T.cast(T.flatten(target), 'int32')
+    target = T.extra_ops.to_one_hot(target, nb_class=output.shape[-1])
+    target = reshape(target, shape(output))
+    return np.sum(-target*log(output))
+    
+
+
+def binary_crossentropy(output, target, from_logits=False):
+    if from_logits:
+        output = sigmoid(output)
+    # avoid numerical instability with _EPSILON clipping
+    output = clip(output, _EPSILON, 1.0 - _EPSILON)
+    return np.sum(- target*log(output) - ( (1-target)*log(1-output) ))
+
+
+
+
+def l2_normalize(x, axis):
+    norm = np.sqrt(np.sum(np.square(x), axis=axis, keepdims=True))
+    return x / norm
+
+
+    
 def scan(fn,
          sequences=None,
          outputs_info=None,
@@ -170,11 +397,9 @@ def scan(fn,
     if isinstance(n_steps, (float, int)):
         n_fixed_steps = int(n_steps)
     else:
-        try:
-            n_fixed_steps = int(n_steps)
-        except ValueError(' n_steps must be an int. dtype provided '
-                         'is %s' % n_steps.dtype):
+        if n_steps is None:
             n_fixed_steps = None
+        
 
     # Check n_steps is an int
     if (hasattr(n_steps, 'dtype') and
@@ -234,6 +459,8 @@ def scan(fn,
             # with an empty OrdereDict() to simplify handling
             outs_info[i] = OrderedDict()
 
+
+
     ##
     # Step 2. Generate inputs and outputs of the inner functions
     # for compiling a dummy function (Iteration #1)
@@ -250,46 +477,26 @@ def scan(fn,
     scan_seqs = []     # Variables passed as inputs to the scan op
     inner_seqs = []    # Variables passed as inputs to the inner function
     inner_slices = []  # Actual slices if scan is removed from the picture
-    # go through sequences picking up time slices as needed
-    for i, seq in enumerate(seqs):
-        # Note that you can have something like no taps for
-        # a sequence, though is highly unlikely in practice
+    
+    actual_looping_size = np.inf # find the least looping size, this is used to allocate the size of output
+    for i,seq in enumerate(seqs):
         if 'taps' in seq:
             # go through the indicated slice
             mintap = np.min(seq['taps'])
             maxtap = np.max(seq['taps'])
-            for k in seq['taps']:
-                # create one slice of the input
-                # Later on, if we decide not to use scan because we are
-                # going for just one step, it makes things easier if we
-                # compute the correct outputs here. This way we can use
-                # the output of the lambda expression directly to replace
-                # the output of scan.
+            
+            maxtap_proxy = max(maxtap, 0)
+            mintap_proxy = min(mintap, 0)
 
-                # If not we need to use copies, that will be replaced at
-                # each frame by the corresponding slice
+            this_length = seq['input'].shape[0] - abs(maxtap_proxy) - abs(mintap_proxy)
+            actual_looping_size = min(actual_looping_size, this_length)
+
+            for k in seq['taps']:           
                 actual_slice = seq['input'][k - mintap]
                 _seq_val = seq['input'] #tensor.as_tensor_variable(seq['input'])
                 _seq_val_slice = _seq_val[k - mintap]
                 nw_slice = _seq_val_slice
-
-                # Add names to slices for debugging and pretty printing ..
-                # that is if the input already has a name
-#                if getattr(seq['input'], 'name', None) is not None:
-#                    if k > 0:
-#                        nw_name = seq['input'].name + '[t+%d]' % k
-#                    elif k == 0:
-#                        nw_name = seq['input'].name + '[t]'
-#                    else:
-#                        nw_name = seq['input'].name + '[t%d]' % k
-#                    nw_slice.name = nw_name
-
-                # We cut the sequence such that seq[i] to correspond to
-                # seq[i-k]. For the purposes of cutting the sequences, we
-                # need to pretend tap 0 is used to avoid cutting the sequences
-                # too long if the taps are all lower or all higher than 0.
-                maxtap_proxy = max(maxtap, 0)
-                mintap_proxy = min(mintap, 0)
+               
                 start = (k - mintap_proxy)
                 if k == maxtap_proxy:
                     nw_seq = seq['input'][start:]
@@ -304,7 +511,7 @@ def scan(fn,
                 inner_seqs.append(nw_slice)
                 inner_slices.append(actual_slice)
                 n_seqs += 1
-
+            
     # Since we've added all sequences now we need to level them up based on
     # n_steps or their different shapes
     lengths_vec = []
@@ -487,7 +694,7 @@ def scan(fn,
         args = (inner_seqs +
                 ordered_args +
                 non_seqs)
-
+ 
     # add only the non-shared variables and non-constants to the arguments of
     # the dummy function [ a function should not get shared variables or
     # constants as input ]
@@ -498,10 +705,84 @@ def scan(fn,
     # when we apply the lambda expression we get a mixture of update rules
     # and outputs that needs to be separated
     
-    condition, outputs, updates = scan_utils.get_updates_and_outputs(fn(*args))
+    condition, outputs, updates = get_updates_and_outputs(fn(*args))
     if condition is not None:
         as_while = True
     else:
         as_while = False
+    
+    # now we can allocate all the memory of outputs tensor which is originally null
+    if not isinstance(outputs, list):
+       outputs = [outputs]
+    
+    OUTPUTS_AS_INPUT_IND = [0 for _ in outputs] # used to index Not_None outputs_info
+    Not_None_outpus_ind = []
+    for idx, each in outs_info:
+        if each.get('initial', None) is not None:
+            OUTPUTS_AS_INPUT_IND[idx] = 1
+            Not_None_outpus_ind.append(idx)
+    
+        
+    
+    # now we know the size of one single slice of output.
+    # todolist: actual_n_steps is bugggy for positive mintap and maxtap
+    
+    outputs_loop = [] # we add actual_n_steps
+    for i, init_out in enumerate(outs_info):
+
+        if init_out.get('taps', None) == [-1]:
+
+            actual_arg = init_out['initial']
+            #if not isinstance(actual_arg, tensor.Variable):
+            #    actual_arg = tensor.as_tensor_variable(actual_arg)
+            arg = safe_new(actual_arg)
+
+            if getattr(init_out['initial'], 'name', None) is not None:
+                arg.name = init_out['initial'].name + '[t-1]'
+
+            # We need now to allocate space for storing the output and copy
+            # the initial state over. We do this using the expand function
+            # defined in scan utils
+            outputs_loop.append(
+                    expand_empty(
+                    unbroadcast(
+                        shape_padleft(actual_arg), 0),
+                    actual_n_steps
+                ))
+
+            #sit_sot_inner_slices.append(actual_arg)
+            #if i in return_steps:
+            #    sit_sot_return_steps[n_sit_sot] = return_steps[i]
+            #sit_sot_inner_inputs.append(arg)
+            sit_sot_rightOrder.append(i)
+            n_sit_sot += 1
+
+        elif init_out.get('taps', None):
+
+            if np.any(np.array(init_out.get('taps', [])) > 0):
+                # Make sure we do not have requests for future values of a
+                # sequence we can not provide such values
+                raise ValueError('Can not use future taps of outputs',
+                                    init_out)
+            # go through the taps
+            mintap = abs(np.min(init_out['taps']))
+            #mit_sot_tap_array.append(init_out['taps'])
+            idx_offset = abs(np.min(init_out['taps']))
+            # Sequence
+            outputs_loop.append(
+                expand_empty(init_out['initial'][:mintap],
+                                        actual_n_steps))
+
+    
+    
+    for loop_ind in range(actual_n_steps):
+        real_seq_inp = []
+        for seq_inpu in scan_seqs:
+            real_seq_inp.append(seq_inpu[loop_ind])
+        
+    for 
+        args = (inner_seqs +
+                ordered_args +
+                non_seqs)
 
     return outputs, updates
