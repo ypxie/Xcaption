@@ -189,8 +189,7 @@ def train(dim_word=100,  # word vector dimensionality
 
     import time
     time_start = time.time()
-    rng, use_noise, \
-          inps, alphas, alphas_sample,\
+    rng,inps, alphas, alphas_sample,\
           cost, \
           opt_outs = \
           build_model(tparams, model_options)
@@ -200,7 +199,7 @@ def train(dim_word=100,  # word vector dimensionality
     # the LSTM at time 0 [see top right of page 4], 2) f_next returns the distribution over
     # words and also the new "initial state/memory" see equation
     print 'Buliding sampler'
-    f_init, f_next = build_sampler(tparams, model_options, use_noise, rng)
+    f_init, f_next = build_sampler(tparams, model_options, rng)
 
     # we want the cost without any the regularizers
     inps += [T.learning_phase()] 

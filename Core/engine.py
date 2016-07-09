@@ -82,8 +82,6 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
     -------
     trng: theano random number generator
         Used for dropout, stochastic attention, etc
-    use_noise: theano shared variable
-        flag that toggles noise on and off
     [x, mask, ctx]: theano variables
         Represent the captions, binary mask, and annotations
         for a single batch (see dimensions below)
@@ -162,7 +160,6 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
                                               init_state=init_state,
                                               init_memory=init_memory,
                                               rng=rng,
-                                              use_noise=use_noise,
                                               sampling=sampling)
     attn_updates += updates
     proj_h = proj[0]
@@ -178,7 +175,6 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
                                                       init_state=init_state,
                                                       init_memory=init_memory,
                                                       rng=rng,
-                                                      use_noise=use_noise,
                                                       sampling=sampling)
             attn_updates += updates
             proj_h = proj[0]
@@ -330,7 +326,6 @@ def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
                                      init_state=init_state[0],
                                      init_memory=init_memory[0],
                                      rng=rng,
-                                     use_noise=use_noise,
                                      sampling=sampling)
 
     next_state, next_memory, ctxs = [proj[0]], [proj[1]], [proj[4]]
@@ -344,7 +339,6 @@ def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
                                              init_state=init_state[lidx],
                                              init_memory=init_memory[lidx],
                                              rng=rng,
-                                             use_noise=use_noise,
                                              sampling=sampling)
             next_state.append(proj[0])
             next_memory.append(proj[1])
