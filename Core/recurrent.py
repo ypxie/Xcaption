@@ -118,7 +118,7 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
                                 outputs_info=[init_state, init_memory, None, None, None, None],
                                 non_sequences = [dropoutmatrix[1]],
                                 name=get_name(prefix, '_layers'),
-                                n_steps=nsteps, profile=False)
+                                 profile=False)
     
     return rval
 
@@ -270,10 +270,10 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
     # state_below is timesteps*num samples by d in training (TODO change to notation of paper)
     # this is n * d during sampling
     batchsize = state_below.shape[1]
-    w_shape   = (1,batchsize, state_below.shape[2])
+    w_shape   = (batchsize, state_below.shape[2])
     #att_shape = (1,batchsize, tparams[get_name(prefix,'Wd_att')].shape[0])
-    u_shape   = (1, batchsize, tparams[get_name(prefix, 'U')].shape[0])
-    ctx_shape = (1, batchsize, tparams[get_name(prefix, 'Wc')].shape[0])
+    u_shape   = (batchsize, tparams[get_name(prefix, 'U')].shape[0])
+    ctx_shape = (batchsize, tparams[get_name(prefix, 'Wc')].shape[0])
 
     dropoutmatrix = get_dropout(shapelist = [w_shape,u_shape,ctx_shape], dropoutrate=options['lstm_dropout'])
 
@@ -507,5 +507,5 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
                                     outputs_info=outputs_info,
                                     non_sequences=[pctx_, dropoutmatrix[1]],
                                     name=get_name(prefix, '_layers'),
-                                    n_steps=nsteps, profile=False)
+                                    profile=False)
         return rval, updates

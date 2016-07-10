@@ -1,3 +1,6 @@
+# Xcaption
+Image caption project
+
 # arctic-captions
 
 Source code for [Show, Attend and Tell: Neural Image Caption Generation with Visual Attention](http://arxiv.org/abs/1502.03044)
@@ -42,3 +45,4 @@ Salakhutdinov, Richard Zemel, Yoshua Bengio. *To appear ICML (2015)*
 ## License
 
 The code is released under a [revised (3-clause) BSD License](http://directory.fsf.org/wiki/License:BSD_3Clause).
+>>>>>>> random

@@ -129,7 +129,7 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
     #emb = tparams['Wemb'][x.flatten()].reshape([n_timesteps, n_samples, options['dim_word']])
     emb = embeding_layer(tparams, x, options, prefix='embeding',dropout=None)
     emb_shifted = T.zeros_like(emb)
-    emb_shifted = T.set_subtensor(emb_shifted[1:], emb[:-1])
+    T.set_subtensor(emb_shifted[1:], emb[:-1])
     emb = emb_shifted
     if options['lstm_encoder']:
         # encoder
@@ -301,13 +301,13 @@ def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
         # start of debuging
         ctx = ctx_init[0]
         x   = x_init[:,0]
+        #because we already have init_state and init_memory
     else:
         # context: #annotations x dim, the features are NOT row by col by dim.
         ctx = T.matrix('ctx_sampler', dtype='float32')
-        x = T.vector('x_sampler', dtype='int64')
-
-    init_state = [T.matrix('init_state', dtype='float32')]
-    init_memory = [T.matrix('init_memory', dtype='float32')]
+        x = T.vector('x_sampler', dtype='int64')   
+        init_state = [T.matrix('init_state', dtype='float32')]
+        init_memory = [T.matrix('init_memory', dtype='float32')]
     if options['n_layers_lstm'] > 1:
         for lidx in xrange(1, options['n_layers_lstm']):
             init_state.append(T.matrix('init_state', dtype='float32'))
@@ -541,6 +541,5 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
                 sample_score.append(hyp_scores[idx])
 
     return sample, sample_score
-
 
 

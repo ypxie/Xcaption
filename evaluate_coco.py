@@ -11,12 +11,12 @@ projroot = os.path.join('..')
 #dataroot = os.path.join(CopyRoot,'WorkStation','MIA_stru', 'Data')
 dataroot = os.path.join(projroot, 'Data')
 
-kerasversion = 'keras-1'
-#kerasversion = 'keras_classical'
-sys.path.insert(0, os.path.join(CopyRoot, 'Code', kerasversion))
-sys.path.insert(0, os.path.join(CopyRoot, 'Code', kerasversion,'keras'))
-sys.path.insert(0, os.path.join(CopyRoot, 'Code', kerasversion,'keras','layers'))
-sys.path.insert(0, '.')
+#kerasversion = 'keras-1'
+##kerasversion = 'keras_classical'
+#sys.path.insert(0, os.path.join(CopyRoot, 'Code', kerasversion))
+#sys.path.insert(0, os.path.join(CopyRoot, 'Code', kerasversion,'keras'))
+#sys.path.insert(0, os.path.join(CopyRoot, 'Code', kerasversion,'keras','layers'))
+#sys.path.insert(0, '.')
 
 
 from Core.train import train

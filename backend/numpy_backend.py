@@ -57,8 +57,12 @@ def in_train_phase(x, alt):
     return x
 
 def function(inputlist, outputlist,**kwargs):
-    pass
-
+    def f(*inputlist, **kwargs):
+        if len(outputlist) == 1:
+            return outputlist[0]
+        else
+            return outputlist
+    return f
 
 
 
@@ -108,8 +112,10 @@ def tensor4(name='x', dtype='float32', shape = None):
     return x
 
 def set_subtensor(dest, source):
+    # you can not use return value, since dest can be a indexed tensor which 
+    # might not have a desired shape
     dest = source
-    return dest
+    
     
 def shared(value, name=None, strict=False, allow_downcast=None, **kwargs):
     return value
@@ -395,11 +401,9 @@ def scan(fn,
     if isinstance(n_steps, (float, int)):
         n_fixed_steps = int(n_steps)
     else:
-        try:
-            n_fixed_steps = int(n_steps)
-        except ValueError(' n_steps must be an int. dtype provided '
-                         'is %s' % n_steps.dtype):
+        if n_steps is None:
             n_fixed_steps = None
+        
 
     # Check n_steps is an int
     if (hasattr(n_steps, 'dtype') and
@@ -485,32 +489,18 @@ def scan(fn,
             mintap = np.min(seq['taps'])
             maxtap = np.max(seq['taps'])
             
-            this_length = seq['input'].shape[0] - abs(mintap) - abs(maxtap)
+            maxtap_proxy = max(maxtap, 0)
+            mintap_proxy = min(mintap, 0)
+
+            this_length = seq['input'].shape[0] - abs(maxtap_proxy) - abs(mintap_proxy)
             actual_looping_size = min(actual_looping_size, this_length)
-    
+
             for k in seq['taps']:           
                 actual_slice = seq['input'][k - mintap]
                 _seq_val = seq['input'] #tensor.as_tensor_variable(seq['input'])
                 _seq_val_slice = _seq_val[k - mintap]
                 nw_slice = _seq_val_slice
-
-                # Add names to slices for debugging and pretty printing ..
-                # that is if the input already has a name
-                #              if getattr(seq['input'], 'name', None) is not None:
-                #                    if k > 0:
-                #                        nw_name = seq['input'].name + '[t+%d]' % k
-                #                    elif k == 0:
-                #                        nw_name = seq['input'].name + '[t]'
-                #                    else:
-                #                        nw_name = seq['input'].name + '[t%d]' % k
-                #                    nw_slice.name = nw_name
-
-                # We cut the sequence such that seq[i] to correspond to
-                # seq[i-k]. For the purposes of cutting the sequences, we
-                # need to pretend tap 0 is used to avoid cutting the sequences
-                # too long if the taps are all lower or all higher than 0.
-                maxtap_proxy = max(maxtap, 0)
-                mintap_proxy = min(mintap, 0)
+               
                 start = (k - mintap_proxy)
                 if k == maxtap_proxy:
                     nw_seq = seq['input'][start:]
@@ -525,7 +515,7 @@ def scan(fn,
                 inner_seqs.append(nw_slice)
                 inner_slices.append(actual_slice)
                 n_seqs += 1
-
+            
     # Since we've added all sequences now we need to level them up based on
     # n_steps or their different shapes
     lengths_vec = []
@@ -708,7 +698,7 @@ def scan(fn,
         args = (inner_seqs +
                 ordered_args +
                 non_seqs)
-
+ 
     # add only the non-shared variables and non-constants to the arguments of
     # the dummy function [ a function should not get shared variables or
     # constants as input ]
@@ -725,7 +715,115 @@ def scan(fn,
     else:
         as_while = False
     
-    # now we know the size of one single slice of output.
-    actual_looping_size
+    # now we can allocate all the memory of outputs tensor which is originally null
+    if not isinstance(outputs, list):
+       outputs = [outputs]
+    
+    OUTPUTS_AS_INPUT_IND = [0 for _ in outputs] # used to index Not_None outputs_info
+    Not_None_outpus_ind = []
+    for idx, each in enumerate(outs_info):
+        if each.get('initial', None) is not None:
+            OUTPUTS_AS_INPUT_IND[idx] = 1
+            Not_None_outpus_ind.append(idx)
+    
+        
+    
+    # we add actual n step
+    outputs_loop = [] 
+    for i, init_out in enumerate(outs_info):
 
-    return outputs, updates
+        if init_out.get('taps', None) == [-1]:
+
+            actual_arg = init_out['initial']
+            #if not isinstance(actual_arg, tensor.Variable):
+            #    actual_arg = tensor.as_tensor_variable(actual_arg)
+            arg = safe_new(actual_arg)
+
+            if getattr(init_out['initial'], 'name', None) is not None:
+                arg.name = init_out['initial'].name + '[t-1]'
+
+            # We need now to allocate space for storing the output and copy
+            # the initial state over. We do this using the expand function
+            # defined in scan utils
+            outputs_loop.append(
+                    expand_empty(
+                    unbroadcast(
+                        shape_padleft(actual_arg), 0),
+                    actual_n_steps
+                ))
+
+            #sit_sot_inner_slices.append(actual_arg)
+            #if i in return_steps:
+            #    sit_sot_return_steps[n_sit_sot] = return_steps[i]
+            #sit_sot_inner_inputs.append(arg)
+            sit_sot_rightOrder.append(i)
+            n_sit_sot += 1
+
+        elif init_out.get('taps', None):
+
+            if np.any(np.array(init_out.get('taps', [])) > 0):
+                # Make sure we do not have requests for future values of a
+                # sequence we can not provide such values
+                raise ValueError('Can not use future taps of outputs',
+                                    init_out)
+            # go through the taps
+            mintap = abs(np.min(init_out['taps']))
+            #mit_sot_tap_array.append(init_out['taps'])
+            idx_offset = abs(np.min(init_out['taps']))
+            # Sequence
+            outputs_loop.append(
+                expand_empty(init_out['initial'][:mintap],
+                                        actual_n_steps))
+        else: # the None outputs_info, we only has actual_n_steps
+            
+            outputs_loop.append(
+                    expand_empty(
+                    unbroadcast(
+                        shape_padleft(outputs[i]), 0),
+                    actual_n_steps -1 
+                ))
+        
+        
+
+
+    for loop_ind in range(actual_n_steps):
+        real_seq_inp = []
+        real_outputs_inp = []
+        for seq_inp in scan_seqs:
+            real_seq_inp.append(seq_inp[loop_ind])
+        for idx, outputful_tensor in enumerate(outputs_loop):
+             
+            init_out = outs_info[idx]
+            
+            if init_out.get('taps', None):
+                this_taps = init_out['taps']
+                min_tap = min(this_taps)
+                max_tap = max(this_taps)
+                this_tensor = outputful_tensor[loop_ind:loop_ind+abs(min_tap)]
+
+                #now we have a subtensor at current cursor.
+
+                for k in init_out['taps']:
+                    current_ind = abs(min_tap) + k
+                    real_outputs_inp.append(this_tensor[current_ind])
+        
+
+        args = (real_seq_inp +
+                real_outputs_inp +
+                non_seqs)
+        cur_condition, cur_outputs, cur_updates = get_updates_and_outputs(fn(*args))
+        #now we need to update the full outputs tensor
+        for oind, cur_output in enumerate(cur_outputs):
+            if OUTPUTS_AS_INPUT_IND[oind] == 1: #means it's used as inputs
+               outputs_loop[oind][loop_ind] = cur_output
+    
+    #now we need to prepare the output
+    return_outputs =[]
+    for rind, o_tensor in enumerate(outputs_loop):
+        if outs_info[rind].get('taps', None):
+           extra_len = abs(min(outs_info[rind].get('taps', None)))
+        else:
+           extra_len = 0 #because we only pad n_step -1 step
+        return_outputs.append(o_tensor[extra_len:]) 
+ 
+    return return_outputs, updates

@@ -7,7 +7,13 @@ from utils import activations, initializations, regularizers
 
 # dropout in theano
 def dropout_layer(state_before, rng =None,dropoutrate=0.5):
-
+    """
+    tensor switch is like an if statement that checks the
+    value of the theano shared variable (use_noise), before
+    either dropping out the state_before tensor or
+    computing the appropriate activation. During training/testing
+    use_noise is toggled on and off.
+    """
     if 0. < dropoutrate < 1.:
         retain_p = 1. - dropoutrate
         B = T.binomial(shape = state_before.shape, p=retain_p, n=1,dtype=state_before.dtype,rng = rng) * (1. / retain_p)

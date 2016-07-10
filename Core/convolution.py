@@ -1,5 +1,5 @@
 import backend.export as T
-from backend.export import npwrapper
+from  backend.export import npwrapper
 
 from Core.utils_func import *
 import numpy as np
@@ -100,5 +100,3 @@ def Resize2D(X,  destin_shape,dim_ordering='th',mask=None):
     result = T.spatial_2d_padding_4specify(X, padding = padding)
     #result = theano.printing.Print('Finish calculating resize')(result + 1)
     return result
-
-
