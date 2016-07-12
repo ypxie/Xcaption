@@ -10,8 +10,8 @@ try:
 except ImportError:
     from theano.sandbox.softsign import softsign as T_softsign
 
-def assign_subtensor(dest, source, slice_dest):
-    dest = T.set_subtensor(dest[slice_dest], source)    
+def assign_subtensor(dest, source, dest_slice):
+    dest = T.set_subtensor(dest[dest_slice], source)    
     return dest    
     
     

@@ -148,8 +148,8 @@ def set_subtensor(dest, source):
     # might not have a desired shape
     dest = source
 
-def assign_subtensor(dest, source, slice_dest):
-    dest[slice_dest] = source
+def assign_subtensor(dest, source, dest_slice):
+    dest[dest_slice] = source
     return dest    
 
 
