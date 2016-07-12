@@ -1,4 +1,4 @@
-
+from backend.keras_backend.theano_backend import *
 from theano.tensor import *
 from theano import scan, shared, function
 import theano.tensor as T
@@ -10,7 +10,13 @@ try:
 except ImportError:
     from theano.sandbox.softsign import softsign as T_softsign
 
-from backend.keras_backend.theano_backend import *
+def assign_subtensor(dest, source, slice_dest):
+    dest = T.set_subtensor(dest[slice_dest], source)    
+    return dest    
+    
+    
+def isnan(x):
+    return x==None
 
 def reshape(x, shape):
     return T.reshape(x, shape)

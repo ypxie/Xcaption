@@ -71,50 +71,50 @@ def quodra_distance(M,W, k):
 #    return h
 
 # some utilities
-def ortho_weight(ndim):
-    """
-    Random orthogonal weights
-    Used by norm_weights(below), in which case, we
-    are ensuring that the rows are orthogonal
-    (i.e W = U \Sigma V, U has the same
-    # of rows, V has the same # of cols)
-    """
-    if type(ndim) == int:
-        shape = (ndim, ndim)
-    else:
-        shape = tuple(ndim)
-    W = np.random.randn(*shape)
+# def ortho_weight(ndim):
+#     """
+#     Random orthogonal weights
+#     Used by norm_weights(below), in which case, we
+#     are ensuring that the rows are orthogonal
+#     (i.e W = U \Sigma V, U has the same
+#     # of rows, V has the same # of cols)
+#     """
+#     if type(ndim) == int:
+#         shape = (ndim, ndim)
+#     else:
+#         shape = tuple(ndim)
+#     W = np.random.randn(*shape)
     
-    u, _, v = np.linalg.svd(W, full_matrices=False)
-    # pick the one with the correct shape
-    q = u if u.shape == shape else v
-    q = q.reshape(shape)
-    return q.astype('float32') 
+#     u, _, v = np.linalg.svd(W, full_matrices=False)
+#     # pick the one with the correct shape
+#     q = u if u.shape == shape else v
+#     q = q.reshape(shape)
+#     return q.astype('float32') 
     
-def zero_weight(shape):
-    return np.zeros(shape).astype('float32')
+# def zero_weight(shape):
+#     return np.zeros(shape).astype('float32')
     
-def norm_weight(nin,nout=None, scale=0.01, ortho=True):
-    """
-    Random weights drawn from a Gaussian
-    """
-    if nout is None:
-        nout = nin
-    if nout == nin and ortho:
-        W = ortho_weight(nin)
-    else:
-        W = scale * np.random.randn(nin, nout)
-    return W.astype('float32')
+# def norm_weight(nin,nout=None, scale=0.01, ortho=True):
+#     """
+#     Random weights drawn from a Gaussian
+#     """
+#     if nout is None:
+#         nout = nin
+#     if nout == nin and ortho:
+#         W = ortho_weight(nin)
+#     else:
+#         W = scale * np.random.randn(nin, nout)
+#     return W.astype('float32')
 
-# some useful shorthands
-def tanh(x):
-    return T.tanh(x)
+# # some useful shorthands
+# def tanh(x):
+#     return T.tanh(x)
 
-def rectifier(x):
-    return T.maximum(0., x)
+# def rectifier(x):
+#     return T.maximum(0., x)
 
-def linear(x):
-    return x
+# def linear(x):
+#     return x
 
 '''
 Theano uses shared variables for parameters, so to
@@ -126,18 +126,19 @@ dictionary
 # push parameters to Theano shared variables
 def zipp(params, tparams):
     for kk, vv in params.iteritems():
-        tparams[kk].set_value(vv)
+        #tparams[kk].set_value(vv)
+        T.set_value(tparams[kk], vv)
 
 # pull parameters from Theano shared variables
 def unzip(zipped):
     new_params = OrderedDict()
     for kk, vv in zipped.iteritems():
-        new_params[kk] = vv.get_value()
+        new_params[kk] = T.get_value(vv)
     return new_params
 
 # get the list of parameters: Note that tparams must be OrderedDict
 def itemlist(tparams):
-    return [vv for kk, vv in tparams.iteritems()]
+    return [vv for _, vv in tparams.iteritems()]
 
 # make prefix-appended name
 def get_name(pp, name):
@@ -146,8 +147,8 @@ def get_name(pp, name):
 # initialize Theano shared variables according to the initial parameters
 def init_tparams(params):
     tparams = OrderedDict()
-    for kk, pp in params.iteritems():
-        tparams[kk] = T.shared(params[kk], name=kk)
+    for kk, _ in params.iteritems():
+        tparams[kk] = T.variable(params[kk], name=kk)
         tparams[kk].trainable = params[kk].trainable
     return tparams
 
@@ -161,5 +162,4 @@ def load_params(path, params):
            params[kk] = npwrapper(pp[kk], trainable=params[kk].trainable)
         else:
            params[kk] = npwrapper(pp[kk], trainable=True)
-
     return params

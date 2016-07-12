@@ -212,7 +212,7 @@ def train(dim_word=100,  # word vector dimensionality
     cost = cost.mean()
     # add L2 regularization costs
     if decay_c > 0.:
-        decay_c = T.shared(np.float32(decay_c), name='decay_c')
+        decay_c = T.variable(np.float32(decay_c), name='decay_c')
         weight_decay = 0.
         for kk, vv in trainable_param.iteritems():
             weight_decay += (vv ** 2).sum()
@@ -221,19 +221,20 @@ def train(dim_word=100,  # word vector dimensionality
     
     # Doubly stochastic regularization
     if alpha_c > 0.:
-        alpha_c = T.shared(np.float32(alpha_c), name='alpha_c')
+        alpha_c = T.variable(np.float32(alpha_c), name='alpha_c')
         alpha_reg = alpha_c * ((1.-alphas.sum(0))**2).sum(0).mean()
         cost += alpha_reg
 
     hard_attn_updates = []
     # Backprop!
     if model_options['attn_type'] == 'deterministic' or model_options['attn_type'] == 'dynamic':
-        grads = T.grad(cost, wrt=itemlist(trainable_param))
+        wrt =itemlist(trainable_param)[1:]
+        grads = T.grad(cost, wrt)
     else:
         # shared variables for hard attention
-        baseline_time = T.shared(np.float32(0.), name='baseline_time')
+        baseline_time = T.variable(np.float32(0.), name='baseline_time')
         opt_outs['baseline_time'] = baseline_time
-        alpha_entropy_c = T.shared(np.float32(alpha_entropy_c), name='alpha_entropy_c')
+        alpha_entropy_c = T.variable(np.float32(alpha_entropy_c), name='alpha_entropy_c')
         alpha_entropy_reg = alpha_entropy_c * (alphas*T.log(alphas)).mean()
         # [see Section 4.1: Stochastic "Hard" Attention for derivation of this learning rule]
         if model_options['RL_sumCost']:
@@ -263,7 +264,7 @@ def train(dim_word=100,  # word vector dimensionality
     opt = eval(optimizer)(lr=lrate)
 
     #opt = Adadelta(lr=lrate, rho=0.95, epsilon=1e-06)
-    training_updates = opt.get_updates(trainable_param,grads)
+    training_updates = opt.get_updates(itemlist(trainable_param),grads)
 
     updates = hard_attn_updates + training_updates
     f_train = T.function(inps,cost, updates=updates)
@@ -310,7 +311,7 @@ def train(dim_word=100,  # word vector dimensionality
             n_samples += len(caps)
             uidx += 1
             # turn on dropout
-            use_noise.set_value(1.)
+            #use_noise.set_value(1.)
 
             # preprocess the caption, recording the
             # time spent to help detect bottlenecks

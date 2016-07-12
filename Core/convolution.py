@@ -8,9 +8,7 @@ from utils import activations, initializations, regularizers
 
 def init_conv2dlayer(options, params, input_shape, nb_filter, nb_row, nb_col,prefix='conv',
 	             init='glorot_uniform',  weights=None, dim_ordering= 'th',
-                 W_regularizer=None, b_regularizer=None, activity_regularizer=None,
-                 W_constraint=None, b_constraint=None,bias=True, dilated = 0, 
-                 rate = 1,trainable=True, **kwargs):
+                 bias=True, dilated = 0, rate = 1,trainable=True, **kwargs):
 
     init = initializations.get(init, dim_ordering=dim_ordering)
     if dim_ordering == 'th':
@@ -23,7 +21,7 @@ def init_conv2dlayer(options, params, input_shape, nb_filter, nb_row, nb_col,pre
         raise Exception('Invalid dim_ordering: ' + dim_ordering)
        
     W = init(W_shape, dim_ordering = dim_ordering, symbolic=False)
-    b = np.zeros((nb_filter))
+    b = initializations.get('zero')((nb_filter),symbolic=False)
     params[get_name(prefix, 'W')] = npwrapper(W, trainable=trainable)
     params[get_name(prefix, 'b')] = npwrapper(b, trainable=trainable)
     

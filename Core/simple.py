@@ -85,23 +85,38 @@ def embeding_layer(tparams, x, options, prefix='embeding',dropoutrate=None,
         B = T.expand_dims(B)
         W = T.in_train_phase(W * B, W)
     
+    # for the first word (which is coded with -1), emb should be all zero
+    #emb = tensor.switch(x[:,None] < 0, tensor.alloc(0., 1, tparams['Wemb'].shape[1]),
+    #                    tparams['Wemb'][x])
+                        
+                        
     if specifier is not None:
-        filled_shape = [1 for _ in range(len(x.shape))] + [W.shape[-1]]
-        emb = T.switch(x[...,None] == specifier, T.alloc(filled_value,*filled_shape),
+        filled_shape = [1 for _ in range(T.ndim(x))] + [W.shape[-1]]
+        if T.ndim(x) == 1:
+            comp = x[:,None]
+        elif T.ndim(x) == 2:
+            comp = x[:,:,None]
+        elif T.ndim(x) == 3:
+            comp = x[:,:,:,None]
+        else:
+            raise Exception('dimention {} is not supported yet!'.format(T.ndim(x))  )
+        emb = T.switch(T.equal(comp, specifier), T.alloc(filled_value,*filled_shape),
                             W[x])
     else:
         emb = W[x]
     return emb
     
 # feedforward layer: affine transformation + point-wise nonlinearity
-def init_fflayer(options, params, prefix='ff', nin=None, nout=None,trainable=True,**kwargs):
+def init_fflayer(options, params, prefix='ff', nin=None, 
+                 nout=None,init='glorot_uniform',trainable=True,**kwargs):
     if nin is None:
         nin = options['dim_proj']
     if nout is None:
         nout = options['dim_proj']
-        
-    params[get_name(prefix, 'W')] = npwrapper(norm_weight(nin, nout, scale=0.01), trainable=trainable) 
-    params[get_name(prefix, 'b')] = npwrapper(np.zeros((nout,)).astype('float32'), trainable=trainable) 
+
+    init = initializations.get(init)    
+    params[get_name(prefix, 'W')] = npwrapper(init((nin, nout), scale=0.01,symbolic=False), trainable=trainable) 
+    params[get_name(prefix, 'b')] = npwrapper(initializations.get('zero')((nout,),symbolic=False).astype('float32'), trainable=trainable) 
 
     return params
 

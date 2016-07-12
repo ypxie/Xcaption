@@ -32,17 +32,7 @@ class npwrapper(np.ndarray):
         #print('   arr is %s' % repr(out_arr))
         # then just call the parent
         return np.ndarray.__array_wrap__(self, out_arr, context)
- 
-def variable(value, dtype=_FLOATX, name=None):
-    '''Instantiate a tensor variable.
-    '''
-    value = npwrapper(np.asarray(value, dtype=dtype))
-    return value
 
-def gradients(loss, variables, **kwargs):
-    '''Pretending to do gradient but actually do nothing. :)
-    '''
-    return variables
 
 
 def learning_phase():
@@ -56,15 +46,57 @@ def in_train_phase(x, alt):
     x._uses_learning_phase = True
     return x
 
+def isnan(x):
+    if isinstance(x, np.ndarray):
+        return np.all(x==None)
+    else:
+        return x==None
+def variable(value, dtype=_FLOATX, name=None):
+    '''Instantiate a tensor variable.
+    '''
+    value = npwrapper(np.asarray(value, dtype=dtype))
+    return value
+
+def gradients(cost, wrt=None, **kwargs):
+    '''Pretending to do gradient but actually do nothing. :)
+    '''
+    return wrt
+grad = gradients
 def function(inputlist, outputlist,**kwargs):
+    if not isinstance(inputlist,list):
+        inputlist = [inputlist]
+    if not isinstance(outputlist,list):
+        outputlist = [outputlist]
+        
     def f(*inputlist, **kwargs):
         if len(outputlist) == 1:
             return outputlist[0]
-        else
+        else:
             return outputlist
     return f
 
 
+def sign(x):
+    return T.sgn(x)
+
+
+def pow(x, a):
+    return np.power(x, a)
+
+
+def get_value(p):
+    return p
+
+def batch_get_value(xs):
+    '''Returns the value of more than one tensor variable,
+    as a list of Numpy arrays.
+    '''
+    return [get_value(x) for x in xs]
+
+def set_value(x, value):
+    x[:] = value[:]
+    return x
+    
 
 def RandomStreams(seed = 1234):
     a = np.random
@@ -115,11 +147,12 @@ def set_subtensor(dest, source):
     # you can not use return value, since dest can be a indexed tensor which 
     # might not have a desired shape
     dest = source
-    
-    
-def shared(value, name=None, strict=False, allow_downcast=None, **kwargs):
-    return value
-    
+
+def assign_subtensor(dest, source, slice_dest):
+    dest[slice_dest] = source
+    return dest    
+
+
 def alloc(value, *shape):
     a = zeros(tuple(shape)) + value
     return a
@@ -131,21 +164,16 @@ def addbroadcast(x, *axes):
 def expand_dims(x, dim=-1):
     '''Add a 1-sized dimension at index "dim".
     '''
-    pattern = [i for i in range(x.type.ndim)]
-    if dim < 0:
-        if x.type.ndim == 0:
-            dim = 0
-        else:
-            dim = dim % x.type.ndim + 1
-    pattern.insert(dim, 'x')
-    return x.transpose(pattern)
+    return np.expand_dims(x, axis=dim)
 
 def shape_padleft(t, n_ones=1):
     pattern = [1] * n_ones + [t.shape[i] for i in xrange(t.ndim)]
     return np.reshape(t, pattern)
+    
 def shape_padright(t, n_ones=1):
     pattern =  [t.shape[i] for i in xrange(t.ndim)] + [1] * n_ones
     return np.reshape(t, pattern)
+    
 def shape_padaxis(t, axis):
     """Reshape `t` by inserting 1 at the dimension `axis`.
 
@@ -205,6 +233,11 @@ def ones_like(x):
 def zeros_like(x):
     return zeros(x.shape)
 
+def zeros(shape,dtype= _FLOATX, name=None,**kwargs):
+    return variable(np.zeros(shape), dtype=dtype, name=name)
+
+def ones(shape, dtype= _FLOATX,name=None,**kwargs):
+    return variable(np.ones(shape), dtype=dtype, name=name)
 
 def count_params(x):
     '''Return number of scalars in a tensor.
@@ -714,7 +747,10 @@ def scan(fn,
         as_while = True
     else:
         as_while = False
-    
+    if not (len(outputs) == n_outs or outs_info == []):
+        raise ValueError('Please provide None as outputs_info for '
+                         'any output that does not feed back into '
+                         'scan (i.e. it behaves like a map) ')
     # now we can allocate all the memory of outputs tensor which is originally null
     if not isinstance(outputs, list):
        outputs = [outputs]

@@ -117,10 +117,10 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
             break
     else:
         # description string: #words x #samples,
-        x = T.matrix('x', dtype='int64')
-        mask = T.matrix('mask', dtype='float32')
+        x = T.placeholder(ndim=2, name='x', dtype='int64')
+        mask = T.placeholder(ndim=2, name='mask')
         # context: #samples x #annotations x dim
-        ctx = T.tensor3('ctx', dtype='float32')
+        ctx = T.placeholder(ndim=3, name='ctx')
 
     n_timesteps = x.shape[0]
     n_samples = x.shape[1]
@@ -129,7 +129,8 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
     #emb = tparams['Wemb'][x.flatten()].reshape([n_timesteps, n_samples, options['dim_word']])
     emb = embeding_layer(tparams, x, options, prefix='embeding',dropout=None)
     emb_shifted = T.zeros_like(emb)
-    T.set_subtensor(emb_shifted[1:], emb[:-1])
+    #emb_shifted = T.set_subtensor(emb_shifted[1:], emb[:-1])
+    emb_shifted = T.assign_subtensor(emb_shifted, emb[:-1], slice(1,None,1))
     emb = emb_shifted
     if options['lstm_encoder']:
         # encoder
@@ -145,12 +146,12 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
     ctx_mean = ctx0.mean(1)
     for lidx in xrange(1, options['n_layers_init']):
         ctx_mean = fflayer(tparams, ctx_mean, options,
-                                      prefix='ff_init_%d'%lidx, activ='rectifier')
+                                      prefix='ff_init_%d'%lidx, activation='relu')
         if options['use_dropout']:
             ctx_mean = dropout_layer(ctx_mean, rng = rng, dropoutrate = options['use_dropout'])
 
-    init_state = fflayer(tparams, ctx_mean, options, prefix='ff_state', activ='tanh')
-    init_memory = fflayer(tparams, ctx_mean, options, prefix='ff_memory', activ='tanh')
+    init_state = fflayer(tparams, ctx_mean, options, prefix='ff_state', activation='tanh')
+    init_memory = fflayer(tparams, ctx_mean, options, prefix='ff_memory', activation='tanh')
     # lstm decoder
     # [equation (1), (2), (3) in section 3.1.2]
     attn_updates = []
@@ -197,7 +198,7 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
         logit += emb
     if options['ctx2out']:
         logit += fflayer(tparams, ctxs, options, prefix='ff_logit_ctx', activ='linear')
-    logit = tanh(logit)
+    logit = T.tanh(logit)
     if options['use_dropout']:
         logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
     if options['n_layers_out'] > 1:
@@ -263,56 +264,63 @@ def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
             break
     if options['debug'] == 1:
         # start of debuging
-        ctx = ctx_init[0]
+        ctx_2d = ctx_init[0]
             
     else:
         # context: #annotations x dim, the features are NOT row by col by dim.
-        ctx = T.matrix('ctx_sampler', dtype='float32')
-
+        ctx_2d = T.placeholder(ndim=2, name= 'ctx_sampler')
+        # we need to make ctx compatible with lstm dimension requirement
+        # now it is 1*annotation*dim
     
+    ctx = T.expand_dims(ctx_2d, dim=0)  
     if options['lstm_encoder']:
         # encoder
-        ctx_fwd = lstm_layer(tparams, ctx,
-                                       options, prefix='encoder')[0]
-        ctx_rev = lstm_layer(tparams, ctx[::-1,:],
-                                       options, prefix='encoder_rev')[0][::-1,:]
-        ctx = T.concatenate((ctx_fwd, ctx_rev), axis=1)
-
-    # initial state/cell
-    ctx_mean = ctx.mean(0)
+        ctx_fwd = lstm_layer(tparams, ctx.dimshuffle(1,0,2),
+                                       options, prefix='encoder')[0].dimshuffle(1,0,2)
+        ctx_rev = lstm_layer(tparams, ctx.dimshuffle(1,0,2)[:,::-1,:],
+                                       options, prefix='encoder_rev')[0][:,::-1,:].dimshuffle(1,0,2)
+        ctx0 = T.concatenate((ctx_fwd, ctx_rev), axis=2)
+    else:
+        ctx0 = ctx
+    # initial state/cell [top right on page 4]
+    ctx_mean = ctx0.mean(1)
     for lidx in xrange(1, options['n_layers_init']):
         ctx_mean = fflayer(tparams, ctx_mean, options,
-                                      prefix='ff_init_%d'%lidx, activ='rectifier')
+                                      prefix='ff_init_%d'%lidx, activation='relu')
         if options['use_dropout']:
-            ctx_mean = dropout_layer(ctx_mean, rng=rng, dropoutrate = options['use_dropout'])
-    init_state = [fflayer(tparams, ctx_mean, options, prefix='ff_state', activ='tanh')]
-    init_memory = [fflayer(tparams, ctx_mean, options, prefix='ff_memory', activ='tanh')]
+            ctx_mean = dropout_layer(ctx_mean, rng = rng, dropoutrate = options['use_dropout'])
+
+    init_state =  [fflayer(tparams, ctx_mean, options, prefix='ff_state', activation='tanh')]
+    init_memory = [fflayer(tparams, ctx_mean, options, prefix='ff_memory', activation='tanh')]
     if options['n_layers_lstm'] > 1:
         for lidx in xrange(1, options['n_layers_lstm']):
-            init_state.append(fflayer(tparams, ctx_mean, options, prefix='ff_state_%d'%lidx, activ='tanh'))
-            init_memory.append(fflayer(tparams, ctx_mean, options, prefix='ff_memory_%d'%lidx, activ='tanh'))
+            init_state.append(fflayer(tparams, ctx_mean, options, prefix='ff_state_%d'%lidx, activation='tanh'))
+            init_memory.append( fflayer(tparams, ctx_mean, options, prefix='ff_memory_%d'%lidx, activation='tanh'))
 
     print 'Building f_init...',
-    f_init = T.function([ctx,T.learning_phase()], [ctx]+init_state+init_memory, name='f_init', profile=False)
+    f_init = T.function([ctx_2d,T.learning_phase()], [ctx_2d]+init_state+init_memory, name='f_init', profile=False)
     print 'Done'
     
     # build f_next
     if options['debug'] == 1:
         # start of debuging
-        ctx = ctx_init[0]
-        x   = x_init[:,0]
+        ctx_2d = ctx_init[0]
+        ctx = T.expand_dims(ctx_2d, dim=0)    
+        x   = x_init[0] #although we only want one time step * one sample, we make it to a vector
         #because we already have init_state and init_memory
     else:
         # context: #annotations x dim, the features are NOT row by col by dim.
-        ctx = T.matrix('ctx_sampler', dtype='float32')
-        x = T.vector('x_sampler', dtype='int64')   
-        init_state = [T.matrix('init_state', dtype='float32')]
-        init_memory = [T.matrix('init_memory', dtype='float32')]
-    if options['n_layers_lstm'] > 1:
-        for lidx in xrange(1, options['n_layers_lstm']):
-            init_state.append(T.matrix('init_state', dtype='float32'))
-            init_memory.append(T.matrix('init_memory', dtype='float32'))
-   
+        ctx_2d = T.placeholder(ndim=2, name='ctx_sampler')
+        ctx = T.expand_dims(ctx_2d, dim=0)  
+        x= T.placeholder(ndim=1, name = 'x_sampler', dtype='int64')
+  
+        init_state = [T.placeholder(ndim=2, name='init_state')]
+        init_memory = [T.placeholder(ndim=2, name='init_memory')]
+
+        if options['n_layers_lstm'] > 1:
+            for lidx in xrange(1, options['n_layers_lstm']):
+                init_state.append(T.placeholder(ndim=2, name='init_state_' + str(lidx)))
+                init_memory.append(T.placeholder(ndim=2, name='init_memory_' + str(lidx))) 
     # for the first word (which is coded with -1), emb should be all zero
     #emb = T.switch(x[:,None] < 0, T.alloc(0., 1, tparams['Wemb'].shape[1]),
     #                    tparams['Wemb'][x])
@@ -349,31 +357,31 @@ def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
         proj_h = dropout_layer(proj[0], rng=rng, dropoutrate = options['use_dropout'])
     else:
         proj_h = proj[0]
-    logit = fflayer(tparams, proj_h, options, prefix='ff_logit_lstm', activ='linear')
+    logit = fflayer(tparams, proj_h, options, prefix='ff_logit_lstm', activation='linear')
     if options['prev2out']:
         logit += emb
     if options['ctx2out']:
-        logit += fflayer(tparams, ctxs[-1], options, prefix='ff_logit_ctx', activ='linear')
-    logit = tanh(logit)
+        logit += fflayer(tparams, ctxs[-1], options, prefix='ff_logit_ctx', activation='linear')
+    logit = T.tanh(logit)
     if options['use_dropout']:
         logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
     if options['n_layers_out'] > 1:
         for lidx in xrange(1, options['n_layers_out']):
-            logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activ='rectifier')
+            logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activation='relu')
             if options['use_dropout']:
                 logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
-    logit = fflayer(tparams, logit, options, prefix='ff_logit', activ='linear')
+    logit = fflayer(tparams, logit, options, prefix='ff_logit', activation='linear')
     logit_shp = logit.shape
     next_probs = T.softmax(logit)
-    next_sample = T.multinomial(shape=(),pvals=next_probs, rng=rng).argmax(1)
+    next_sample = T.multinomial(shape=next_probs.shape,pvals=next_probs, rng=rng).argmax(1)
 
     # next word probability
     print "Building f_next..."
-    f_next = T.function([x, ctx,T.learning_phase()]+init_state+init_memory, [next_probs, next_sample]+next_state+next_memory, name='f_next', profile=False)
+    f_next = T.function([x, ctx_2d,T.learning_phase()]+init_state+init_memory, [next_probs, next_sample]+next_state+next_memory, name='f_next', profile=False)
     print 'Done'
     return f_init, f_next
 
-# generate sample
+#generate sample
 def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30, stochastic=False):
     """Generate captions with beam search.
 
@@ -437,10 +445,10 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
     # the states are returned as a: (dim,) and this is just a reshape to (1, dim)
     for lidx in xrange(options['n_layers_lstm']):
         next_state.append(rval[1+lidx])
-        next_state[-1] = next_state[-1].reshape([1, next_state[-1].shape[0]])
+        #next_state[-1] = next_state[-1].reshape([1, next_state[-1].shape[0]])
     for lidx in xrange(options['n_layers_lstm']):
         next_memory.append(rval[1+options['n_layers_lstm']+lidx])
-        next_memory[-1] = next_memory[-1].reshape([1, next_memory[-1].shape[0]])
+        #next_memory[-1] = next_memory[-1].reshape([1, next_memory[-1].shape[0]])
     # reminder: if next_w = -1, the switch statement
     # in build_sampler is triggered -> (empty word embeddings)
     next_w = -1 * np.ones((1,)).astype('int64')

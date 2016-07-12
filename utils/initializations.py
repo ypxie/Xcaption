@@ -43,41 +43,41 @@ def normal(shape, scale=0.05, name=None,symbolic=True,**kwargs):
     else:
        return np.random.normal(loc=0.0, scale=scale, size=shape)
 
-def lecun_uniform(shape, name=None, dim_ordering='th',**kwargs):
+def lecun_uniform(shape, name=None,symbolic=True, dim_ordering='th',**kwargs):
     ''' Reference: LeCun 98, Efficient Backprop
         http://yann.lecun.com/exdb/publis/pdf/lecun-98b.pdf
     '''
     fan_in, fan_out = get_fans(shape, dim_ordering=dim_ordering)
     scale = np.sqrt(3. / fan_in)
-    return uniform(shape, scale, name=name)
+    return uniform(shape, scale,symbolic=symbolic,name=name)
 
 
-def glorot_normal(shape, name=None, dim_ordering='th',**kwargs):
+def glorot_normal(shape, name=None,symbolic=True, dim_ordering='th',**kwargs):
     ''' Reference: Glorot & Bengio, AISTATS 2010
     '''
     fan_in, fan_out = get_fans(shape, dim_ordering=dim_ordering)
     s = np.sqrt(2. / (fan_in + fan_out))
-    return normal(shape, s, name=name)
+    return normal(shape, s, sumbolic = symbolic, name=name)
 
 
-def glorot_uniform(shape, name=None, dim_ordering='th',**kwargs):
+def glorot_uniform(shape, name=None, symbolic=True,dim_ordering='th',**kwargs):
     fan_in, fan_out = get_fans(shape, dim_ordering=dim_ordering)
     s = np.sqrt(6. / (fan_in + fan_out))
-    return uniform(shape, s, name=name)
+    return uniform(shape, s, symbolic=symbolic,name=name)
 
 
-def he_normal(shape, name=None, dim_ordering='th',**kwargs):
+def he_normal(shape, name=None, symbolic=True,dim_ordering='th',**kwargs):
     ''' Reference:  He et al., http://arxiv.org/abs/1502.01852
     '''
     fan_in, fan_out = get_fans(shape, dim_ordering=dim_ordering)
     s = np.sqrt(2. / fan_in)
-    return normal(shape, s, name=name)
+    return normal(shape, s,symbolic=symbolic, name=name)
 
 
-def he_uniform(shape, name=None, dim_ordering='th',**kwargs):
+def he_uniform(shape, name=None,symbolic=True, dim_ordering='th',**kwargs):
     fan_in, fan_out = get_fans(shape, dim_ordering=dim_ordering)
     s = np.sqrt(6. / fan_in)
-    return uniform(shape, s, name=name)
+    return uniform(shape, s, symbolic=symbolic,name=name)
 
 def get_orthogonal(shape, scale=1.):
     # get the orthogonal matrix for two dim shape
@@ -115,14 +115,14 @@ def identity(shape, scale=1, dim_ordering='tf',name=None,symbolic=True,**kwargs)
 
 def zero(shape, name=None,symbolic=True,**kwargs):
     if symbolic:
-       return K.ones(shape, name=name)
+       return K.variable(np.zeros(shape), name=name)
     else:
-       return np.ones(shape) 
+       return np.zeros(shape) 
 
 
 def one(shape, name=None,symbolic=True,**kwargs):
     if symbolic:
-       return K.ones(shape, name=name)
+       return K.variable(np.ones(shape), name=name)
     else:
        return np.ones(shape) 
 from fractions import gcd

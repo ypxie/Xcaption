@@ -1,5 +1,5 @@
 from __future__ import absolute_import
-import backend.export as T
+import backend.export as K
 import numpy as np
 from utils.generic_utils import get_from_module
 from six.moves import zip
