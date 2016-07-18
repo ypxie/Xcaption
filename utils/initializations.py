@@ -29,6 +29,36 @@ def get_fans(shape, dim_ordering='th',**kwargs):
     return fan_in, fan_out
 
 
+def ortho_weight(shape, **kwargs):
+    """
+    Random orthogonal weights
+    Used by norm_weights(below), in which case, we
+    are ensuring that the rows are orthogonal
+    (i.e W = U \Sigma V, U has the same
+    # of rows, V has the same # of cols)
+    """
+    nin,nout = shape[0], shape[1]
+    W = np.random.randn(nin,nout)
+    
+    u, _, v = np.linalg.svd(W, full_matrices=False)
+    q = u if u.shape == shape else v
+    q = q.reshape(shape)
+
+    return q.astype(K.floatX)
+
+def norm_weight(shape, scale=0.01, ortho=True, **kwargs):
+    """
+    Random weights drawn from a Gaussian
+    """
+    nin,nout = shape[0], shape[1]
+    if nout is None:
+        nout = nin
+    if nout == nin and ortho:
+        W = ortho_weight((nin,nin))
+    else:
+        W = scale * np.random.randn(nin, nout)
+    return W.astype('float32')
+    
 def uniform(shape, scale=0.05, name=None,symbolic=True, **kwargs):
     if symbolic:
        return K.variable(np.random.uniform(low=-scale, high=scale, size=shape),
@@ -57,7 +87,7 @@ def glorot_normal(shape, name=None,symbolic=True, dim_ordering='th',**kwargs):
     '''
     fan_in, fan_out = get_fans(shape, dim_ordering=dim_ordering)
     s = np.sqrt(2. / (fan_in + fan_out))
-    return normal(shape, s, sumbolic = symbolic, name=name)
+    return normal(shape, s, symbolic = symbolic, name=name)
 
 
 def glorot_uniform(shape, name=None, symbolic=True,dim_ordering='th',**kwargs):

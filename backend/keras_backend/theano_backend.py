@@ -14,7 +14,9 @@ from .common import _FLOATX, _EPSILON
 
 # INTERNAL UTILS
 theano.config.floatX = _FLOATX
-_LEARNING_PHASE = T.scalar(dtype='uint8', name='keras_learning_phase')  # 0 = test, 1 = train
+#_LEARNING_PHASE = theano.shared(1.0, name='keras_learning_phase')  # 0 = test, 1 = train
+_LEARNING_PHASE = T.scalar(dtype='uint8',name='keras_learning_phase')  # 0 = test, 1 = train
+
 Variable = theano.Variable  #denote the tensor variable type
 FLOATX = _FLOATX
 

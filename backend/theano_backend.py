@@ -64,16 +64,20 @@ def uniform(shape, low=0.0, high=1.0, dtype=_FLOATX, rng=None):
         rng = RandomStreams(seed=seed)
     return rng.uniform(size = shape, low=low, high=high, dtype=dtype)
 
-def binomial(shape, p=0.0, n=1,dtype=_FLOATX, rng=None):
+def binomial(shape=None, p=0.0, n=1,dtype=_FLOATX, rng=None):
     if rng is None:
         seed = np.random.randint(1, 10e6)
         rng = RandomStreams(seed=seed)
+    if shape is None:
+        shape = p.shape
     return rng.binomial(size = shape, p=p, n= 1, dtype=dtype)
 
-def multinomial(shape=(), pvals=0.0, n =1, dtype=_FLOATX, rng=None):
+def multinomial(shape=None, p=0.0, n =1, dtype=_FLOATX, rng=None):
     if rng is None:
         seed = np.random.randint(1, 10e6)
         rng = RandomStreams(seed=seed)
-    return rng.binomial(n=n, p=pvals,size= shape,dtype=dtype)
+    if shape is None:
+        shape = p.shape
+    return rng.binomial(n=n, p=p,size= shape,dtype=dtype)
    
    

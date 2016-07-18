@@ -29,7 +29,7 @@ def dropout_layer(state_before, rng =None,dropoutrate=0.5):
 
 #embeding layer
 def init_embeding(options, params, prefix='embeding',input_dim=None,
-                  output_dim=None, init='normal',trainable=True):
+                  output_dim=None, init='norm_weight',trainable=True):
     '''
         Turn positive integers (indexes) into dense vectors of fixed size.
         eg. [[4], [20]] -> [[0.25, 0.1], [0.6, -0.2]]
@@ -108,19 +108,19 @@ def embeding_layer(tparams, x, options, prefix='embeding',dropoutrate=None,
     
 # feedforward layer: affine transformation + point-wise nonlinearity
 def init_fflayer(options, params, prefix='ff', nin=None, 
-                 nout=None,init='glorot_uniform',trainable=True,**kwargs):
+                 nout=None,init='norm_weight',trainable=True,**kwargs):
     if nin is None:
         nin = options['dim_proj']
     if nout is None:
         nout = options['dim_proj']
 
     init = initializations.get(init)    
-    params[get_name(prefix, 'W')] = npwrapper(init((nin, nout), scale=0.01,symbolic=False), trainable=trainable) 
+    params[get_name(prefix, 'W')] = npwrapper(init((nin, nout),scale=0.01,symbolic=False), trainable=trainable) 
     params[get_name(prefix, 'b')] = npwrapper(initializations.get('zero')((nout,),symbolic=False).astype('float32'), trainable=trainable) 
 
     return params
 
-def fflayer(tparams, state_below, options, prefix='rconv', activation='relu', **kwargs):
+def fflayer(tparams, state_below, options, prefix='ff', activation='tanh', **kwargs):
     activation_func = activations.get(activation) 
     return activation_func(T.dot(state_below, tparams[get_name(prefix,'W')])+tparams[get_name(prefix,'b')])
 

@@ -17,6 +17,8 @@ import backend.export as T
 from fuel.homogeneous_data import HomogeneousData
 from fuel import datasets
 from Core.engine import *
+#from Core.original_optimizer import adadelta, adam, rmsprop, sgd
+from Core.optimizers import *
 
 import pickle as pkl
 import numpy as np
@@ -87,7 +89,7 @@ def pred_probs(f_log_probs, options, worddict, prepare_data, data, iterator, ver
                                      worddict,
                                      maxlen=None,
                                      n_words=options['n_words'])
-        pred_probs = f_log_probs(x,mask,ctx,train)
+        pred_probs = f_log_probs(x,mask,ctx,np.uint8(train))
         probs[valid_index] = pred_probs[:,None]
 
         n_done += len(valid_index)
@@ -105,6 +107,7 @@ def pred_probs(f_log_probs, options, worddict, prepare_data, data, iterator, ver
 """
 def train(dim_word=100,  # word vector dimensionality
           ctx_dim=512,  # context vector dimensionality
+          proj_ctx_dim = 512, # projected context vector dimensionality
           dim=1000,  # the number of LSTM units
           shift_range = 3, # how many shift for ntm memory location
           attn_type='stochastic',  # [see section 4 from paper]
@@ -142,11 +145,11 @@ def train(dim_word=100,  # word vector dimensionality
           use_dropout= 0.5,  # setting this true turns on dropout at various points
           lstm_dropout= None,  # dropout on lstm gates
           reload_=False,
-          save_per_epoch=False, debug = True, **kwargs): # this saves down the model every epoch
+          save_per_epoch=False, **kwargs): # this saves down the model every epoch
 
     # hyperparam dict
     model_options = locals().copy()
-    
+    options = model_options
     model_options = validate_options(model_options)
 
     # reload options
@@ -189,7 +192,7 @@ def train(dim_word=100,  # word vector dimensionality
 
     import time
     time_start = time.time()
-    rng,inps, alphas, alphas_sample,\
+    rng,use_noise,inps, alphas, alphas_sample,\
           cost, \
           opt_outs = \
           build_model(tparams, model_options)
@@ -203,7 +206,7 @@ def train(dim_word=100,  # word vector dimensionality
 
     # we want the cost without any the regularizers
     inps += [T.learning_phase()] 
-    f_log_probs = T.function(inps, -cost, profile=False,
+    f_log_probs = T.function(inps, -cost, profile=False, on_unused_input='ignore',
                                         updates=opt_outs['attn_updates']
                                         if model_options['attn_type']=='stochastic'
                                         else None)
@@ -228,7 +231,7 @@ def train(dim_word=100,  # word vector dimensionality
     hard_attn_updates = []
     # Backprop!
     if model_options['attn_type'] == 'deterministic' or model_options['attn_type'] == 'dynamic':
-        wrt =itemlist(trainable_param)[1:]
+        wrt =itemlist(trainable_param)
         grads = T.grad(cost, wrt)
     else:
         # shared variables for hard attention
@@ -256,19 +259,18 @@ def train(dim_word=100,  # word vector dimensionality
     # f_cost = theano.function([x, mask, ctx], cost, profile=False)
     # f_grad = theano.function([x, mask, ctx], grads, profile=False)
 
-    # f_grad_shared computes the cost and updates adaptive learning rate variables
-    # f_update updates the weights of the model
-
-    #lr = T.scalar(name='lr')
-    #opt = optimizers.get(optimizer)
     opt = eval(optimizer)(lr=lrate)
-
-    #opt = Adadelta(lr=lrate, rho=0.95, epsilon=1e-06)
     training_updates = opt.get_updates(itemlist(trainable_param),grads)
-
     updates = hard_attn_updates + training_updates
-    f_train = T.function(inps,cost, updates=updates)
-
+    f_train = T.function(inps,cost, updates=updates,on_unused_input='warn')
+      
+#    if options['debug'] == 0:
+#        import theano
+#        theano.printing.pydotprint(f_train, outfile='aa.png',with_ids=True,return_image=False, format='png')
+#        from IPython.display import SVG
+#        SVG(theano.printing.pydotprint(f_train, return_image=True,
+#                                       format='svg'))
+    #lr = T.scalar(name='lr')    
     #f_grad_shared, f_update = eval(optimizer)(lr, trainable_param, grads, inps, cost, hard_attn_updates)
 
     total_time = time.time() - time_start
@@ -311,7 +313,7 @@ def train(dim_word=100,  # word vector dimensionality
             n_samples += len(caps)
             uidx += 1
             # turn on dropout
-            #use_noise.set_value(1.)
+            use_noise.set_value(1.)
 
             # preprocess the caption, recording the
             # time spent to help detect bottlenecks
@@ -331,9 +333,10 @@ def train(dim_word=100,  # word vector dimensionality
 
             # get the cost for the minibatch, and update the weights
             ud_start = time.time()
+            
             #cost = f_grad_shared(x, mask, ctx, 1)
             #f_update(lrate)
-            cost = f_train(x,mask,ctx,1.0)
+            cost = f_train(x,mask,ctx, np.uint8(1.0))
             ud_duration = time.time() - ud_start # some monitoring for each mini-batch
 
             # Numerical stability check
@@ -359,7 +362,7 @@ def train(dim_word=100,  # word vector dimensionality
             # Print a generated sample as a sanity check
             if np.mod(uidx, sampleFreq) == 0:
                 # turn off dropout first
-                #use_noise.set_value(0.)
+                use_noise.set_value(0.)
                 #K.set_learning_phase(0.)
                 x_s = x
                 mask_s = mask
@@ -391,7 +394,7 @@ def train(dim_word=100,  # word vector dimensionality
 
             # Log validation loss + checkpoint the model with the best validation log likelihood
             if np.mod(uidx, validFreq) == 0:
-                #use_noise.set_value(0.)
+                use_noise.set_value(0.)
                 train_err = 0
                 valid_err = 0
                 test_err = 0

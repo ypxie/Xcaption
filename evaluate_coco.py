@@ -5,7 +5,10 @@ be modified to coco/flickr30k/flickr8k
 import argparse
 import os
 import sys
-os.environ['THEANO_FLAGS'] = 'device=gpu0, optimizer=fast_run,force_device=True, allow_gc=False'
+#os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_compile,optimizer=None,force_device=True, exception_verbosity=high,allow_gc=False'
+os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_run,force_device=True, allow_gc=False'
+os.environ['debug_mode'] =  'True'
+
 CopyRoot  = os.path.join('..','..','..')
 projroot = os.path.join('..')
 #dataroot = os.path.join(CopyRoot,'WorkStation','MIA_stru', 'Data')
@@ -81,15 +84,17 @@ if __name__ == "__main__":
     saveto = os.path.join(modelfolder, "my_caption_model.npz")
     
     defaults = {"saveto": saveto,
-                "attn_type": "dynamic" ,#"dynamic",
-                "addressing": "softmax",
+                #"attn_type": "dynamic" ,#"dynamic",
+                "attn_type": "deterministic" ,#"dynamic",
+                "addressing": "ntm",
                 "dim_word": 511,
                 "ctx_dim": 512,
+                "proj_ctx_dim": 512,
                 "dim": 128,
                 "shift_range":3,
                 "n_layers_att": 2,
                 "n_layers_out": 1,
-                "n_layers_lstm": 1,
+                "n_layers_lstm": 2,
                 "n_layers_init": 2,
                 "n_words": 10000,
                 "lstm_encoder": False,
@@ -97,13 +102,13 @@ if __name__ == "__main__":
                 "alpha_c": 1.,
                 "prev2out": True,
                 "ctx2out": True,
-                "learning_rate": 0.01,
-                "optimizer": "adam",
+                "lrate": 0.0002 ,#0.01,
+                "optimizer": "adam", #RMSprop
                 "selector": True,
                 "use_dropout": 0.5,
-                "lstm_dropout": 0.5,
+                "lstm_dropout": 0.25,
                 "save_per_epoch": False,
-                "reload": True,
+                "reload": False,
                 "valid_batch_size":2,
                 "patience":10,
                 "maxlen":100,
@@ -113,8 +118,7 @@ if __name__ == "__main__":
                 "saveFreq":10,
                 "sampleFreq":100,
                 "dataset": "flickr30k",
-                "data_path" : data_path,
-                "debug" : False
+                "data_path" : data_path
                  } 
     # get updates from command line
     args = parser.parse_args()

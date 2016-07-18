@@ -29,7 +29,10 @@ class Optimizer(object):
             when their absolute value exceeds this value.
     '''
     def __init__(self, **kwargs):
-        allowed_kwargs = {'clipnorm', 'clipvalue'}
+        allowed_kwargs = {'clipnorm', 'clipvalue', 'eta','gamma','noise'}
+        self.eta= 1.0
+        self.gamma = 0.55
+        self.noise = True
         for k in kwargs:
             if k not in allowed_kwargs:
                 raise Exception('Unexpected keyword argument '
@@ -37,7 +40,7 @@ class Optimizer(object):
         self.__dict__.update(kwargs)
         self.updates = []
         self.weights = []
-
+        
     def get_state(self):
         return [K.get_value(u[0]) for u in self.updates]
 
@@ -51,11 +54,20 @@ class Optimizer(object):
 
     def get_gradients(self, loss, params):
         grads = K.gradients(loss, params)
+        grads = self.modify_gradients(grads)
+        return grads
+
+    def modify_gradients(self, grads):
         if hasattr(self, 'clipnorm') and self.clipnorm > 0:
             norm = K.sqrt(sum([K.sum(K.square(g)) for g in grads]))
             grads = [clip_norm(g, self.clipnorm, norm) for g in grads]
         if hasattr(self, 'clipvalue') and self.clipvalue > 0:
-            grads = [K.clip(g, -self.clipvalue, self.clipvalue) for g in grads]
+            grads = [K.clip(g, -self.clipvalue, self.clipvalue) for g in grads]    
+        if hasattr(self,'noise') and self.noise:
+            self.noise_iterations =  K.variable(0.)
+            self.updates.append((self.noise_iterations, self.noise_iterations + 1.))
+            sigma_sqr = self.eta / (1. + self.noise_iterations)**self.gamma   
+            grads = [g + K.normal(K.shape(g), std=sigma_sqr) for g in grads]        
         return grads
 
     def set_weights(self, weights):
@@ -99,6 +111,12 @@ class Optimizer(object):
             config['clipnorm'] = self.clipnorm
         if hasattr(self, 'clipvalue'):
             config['clipvalue'] = self.clipvalue
+        if hasattr(self, 'noise'):
+            config['noise'] = self.noise
+        if hasattr(self, 'eta'):
+            config['eta'] = self.eta
+        if hasattr(self, 'gamma'):
+            config['gamma'] = self.gamma
         return config
 
 
@@ -123,8 +141,9 @@ class SGD(Optimizer):
 
     def get_updates(self, params, grads,constraints=[]):
         #grads = self.get_gradients(loss, params)
+        grads = self.modify_gradients(grads)
         lr = self.lr * (1. / (1. + self.decay * self.iterations))
-        self.updates = [(self.iterations, self.iterations + 1.)]
+        self.updates.append((self.iterations, self.iterations + 1.))
 
         # momentum
         self.weights = [K.variable(np.zeros(K.get_value(p).shape)) for p in params]
@@ -168,7 +187,7 @@ class RMSprop(Optimizer):
         rho: float >= 0.
         epsilon: float >= 0. Fuzz factor.
     '''
-    def __init__(self, lr=0.001, rho=0.9, epsilon=1e-8, **kwargs):
+    def __init__(self, lr=0.001, rho=0.95, epsilon=1e-8, **kwargs):
         super(RMSprop, self).__init__(**kwargs)
         self.__dict__.update(locals())
         self.lr = K.variable(lr)
@@ -176,10 +195,11 @@ class RMSprop(Optimizer):
 
     def get_updates(self, params, grads,constraints=[]):
         #grads = self.get_gradients(loss, params)
+        grads = self.modify_gradients(grads)
         # accumulators
         self.weights = [K.variable(np.zeros(K.get_value(p).shape)) for p in params]
-        self.updates = []
-
+        #self.updates = []
+        
         for p, g, a in zip(params, grads, self.weights):
             # update accumulator
             new_a = self.rho * a + (1. - self.rho) * K.square(g)
@@ -220,7 +240,7 @@ class Adagrad(Optimizer):
         #grads = self.get_gradients(loss, params)
         # accumulators
         self.weights = [K.variable(np.zeros(K.get_value(p).shape)) for p in params]
-        self.updates = []
+        #self.updates = []
 
         for p, g, a in zip(params, grads, self.weights):
             new_a = a + K.square(g)  # update accumulator
@@ -265,7 +285,7 @@ class Adadelta(Optimizer):
         accumulators = [K.variable(np.zeros(K.get_value(p).shape)) for p in params]
         delta_accumulators = [K.variable(np.zeros(K.get_value(p).shape)) for p in params]
         self.weights = accumulators + delta_accumulators
-        self.updates = []
+        #self.updates = []
 
         for p, g, a, d_a in zip(params, grads, accumulators, delta_accumulators):
             # update accumulator
@@ -308,7 +328,7 @@ class Adam(Optimizer):
     # References
         - [Adam - A Method for Stochastic Optimization](http://arxiv.org/abs/1412.6980v8)
     '''
-    def __init__(self, lr=0.001, beta_1=0.9, beta_2=0.999,
+    def __init__(self, lr=0.0002, beta_1=0.1, beta_2=0.001,
                  epsilon=1e-8, **kwargs):
         super(Adam, self).__init__(**kwargs)
         self.__dict__.update(locals())
@@ -316,11 +336,44 @@ class Adam(Optimizer):
         self.lr = K.variable(lr)
         self.beta_1 = K.variable(beta_1)
         self.beta_2 = K.variable(beta_2)
+    # def get_updates__(self, params, grads,constraints=[]):
+    #     grads = self.modify_gradients(grads)
+    #     gshared = [K.shared(p.get_value() * np.float32(0.), name='%s_grad'+str(k)) for k ,p in enumerate(params)]
+    #     updates = []
+        
+    #     gsup = [updates.append((gs, g)) for gs, g in zip(gshared, grads)]
+        
+    #     lr0 = 0.0002
+    #     b1 = 0.1
+    #     b2 = 0.001
+    #     e = 1e-8
+    #     i = K.shared(np.float32(0.))
+    #     i_t = i + 1.
+    #     fix1 = 1. - b1**(i_t)
+    #     fix2 = 1. - b2**(i_t)
+    #     lr_t = lr0 * (K.sqrt(fix2) / fix1)
+
+    #     for p, g in zip(params, gshared):
+    #         m = K.shared(p.get_value() * np.float32(0.))
+    #         v = K.shared(p.get_value() * np.float32(0.))
+    #         m_t = (b1 * g) + ((1. - b1) * m)
+    #         v_t = (b2 * K.sqr(g)) + ((1. - b2) * v) # original
+    #         #v_t = (b2 * v) + ((1. - b2) * T.sqr(g))
+
+    #         g_t = m_t / (K.sqrt(v_t) + e)
+    #         p_t = p - (lr_t * g_t)
+    #         updates.append((m, m_t))
+    #         updates.append((v, v_t))
+    #         updates.append((p, p_t))
+    #     updates.append((i, i_t))
+        
+    #     return updates
 
     def get_updates(self, params, grads,constraints=[]):
         #grads = self.get_gradients(loss, params)
-        self.updates = [(self.iterations, self.iterations + 1)]
-
+        grads = self.modify_gradients(grads)
+        self.updates.append((self.iterations, self.iterations + 1))
+ 
         t = self.iterations + 1
         lr_t = self.lr * K.sqrt(1. - K.pow(self.beta_2, t)) / (1. - K.pow(self.beta_1, t))
 
@@ -330,7 +383,9 @@ class Adam(Optimizer):
 
         for p, g, m, v in zip(params, grads, ms, vs):
             m_t = (self.beta_1 * m) + (1. - self.beta_1) * g
-            v_t = (self.beta_2 * v) + (1. - self.beta_2) * K.square(g)
+            #v_t = (self.beta_2 * v) + (1. - self.beta_2) * K.square(g)   #the correct one
+            v_t = (self.beta_2 * K.square(g) ) + (1. - self.beta_2) * v 
+             
             p_t = p - lr_t * m_t / (K.sqrt(v_t) + self.epsilon)
 
             self.updates.append((m, m_t))
@@ -378,7 +433,8 @@ class Adamax(Optimizer):
 
     def get_updates(self, params, grads,constraints=[]):
         #grads = self.get_gradients(loss, params)
-        self.updates = [(self.iterations, self.iterations + 1)]
+        grads = self.modify_gradients(grads)
+        self.updates.append((self.iterations, self.iterations + 1))
 
         t = self.iterations + 1
         lr_t = self.lr / (1. - K.pow(self.beta_1, t))
@@ -447,7 +503,8 @@ class Nadam(Optimizer):
 
     def get_updates(self, params, grads,constraints=[]):
         #grads = self.get_gradients(loss, params)
-        self.updates = [(self.iterations, self.iterations + 1)]
+        grads = self.modify_gradients(grads)
+        self.updates.append((self.iterations, self.iterations + 1))
 
         t = self.iterations + 1
 
@@ -503,7 +560,6 @@ adadelta = Adadelta
 adam = Adam
 adamax = Adamax
 nadam = Nadam
-
 
 def get(identifier, kwargs=None):
     return get_from_module(identifier, globals(), 'optimizer',

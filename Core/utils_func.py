@@ -11,11 +11,7 @@ def wta(X):
     return R
 def renorm(x):
     return x / (x.sum(axis=1, keepdims=True))
-def softmax(x):
-    wt = x.flatten(ndim=2)
-    w = T.softmax(wt)
-    return w.reshape(x.shape)  # T.clip(s, 0, 1)
-    
+
 def circulant(leng, n_shifts):
     """
     I confess, I'm actually proud of this hack. I hope you enjoy!

@@ -37,7 +37,7 @@ def adadelta(lr, tparams, grads, inp, cost, hard_attn_up=[]):
     zgup = [(zg, g) for zg, g in zip(zipped_grads, grads)]
     rg2up = [(rg2, 0.95 * rg2 + 0.05 * (g ** 2)) for rg2, g in zip(running_grads2, grads)]
 
-    f_grad_shared = T.function(inp, cost, updates=zgup+rg2up+hard_attn_up, profile=False)
+    f_grad_shared = T.function(inp, cost, updates=zgup+rg2up+hard_attn_up, profile=False,on_unused_input='ignore')
     
     updir = [-T.sqrt(ru2 + 1e-6) / T.sqrt(rg2 + 1e-6) * zg for zg, ru2, rg2 in zip(zipped_grads, running_up2, running_grads2)]
     ru2up = [(ru2, 0.95 * ru2 + 0.05 * (ud ** 2)) for ru2, ud in zip(running_up2, updir)]
@@ -62,7 +62,7 @@ def rmsprop(lr, tparams, grads, inp, cost, hard_attn_up=[]):
     rgup = [(rg, 0.95 * rg + 0.05 * g) for rg, g in zip(running_grads, grads)]
     rg2up = [(rg2, 0.95 * rg2 + 0.05 * (g ** 2)) for rg2, g in zip(running_grads2, grads)]
 
-    f_grad_shared = T.function(inp, cost, updates=zgup+rgup+rg2up+hard_attn_up, profile=False)
+    f_grad_shared = T.function(inp, cost, updates=zgup+rgup+rg2up+hard_attn_up, profile=False, on_unused_input='ignore')
 
     updir = [T.shared(p.get_value() * numpy.float32(0.), name='%s_updir'%k) for k, p in tparams.iteritems()]
     updir_new = [(ud, 0.9 * ud - 1e-4 * zg / T.sqrt(rg2 - rg ** 2 + 1e-4)) for ud, zg, rg, rg2 in zip(updir, zipped_grads, running_grads, running_grads2)]
@@ -78,7 +78,7 @@ def adam(lr, tparams, grads, inp, cost, hard_attn_up=[]):
     gshared = [T.shared(p.get_value() * numpy.float32(0.), name='%s_grad'%k) for k, p in tparams.iteritems()]
     gsup = [(gs, g) for gs, g in zip(gshared, grads)]
 
-    f_grad_shared = T.function(inp, cost, updates=gsup+hard_attn_up)
+    f_grad_shared = T.function(inp, cost, updates=gsup+hard_attn_up,on_unused_input='ignore')
     lr0 = 0.0002
     b1 = 0.1
     b2 = 0.001
@@ -94,7 +94,9 @@ def adam(lr, tparams, grads, inp, cost, hard_attn_up=[]):
         m = T.shared(p.get_value() * numpy.float32(0.))
         v = T.shared(p.get_value() * numpy.float32(0.))
         m_t = (b1 * g) + ((1. - b1) * m)
-        v_t = (b2 * T.sqr(g)) + ((1. - b2) * v)
+        v_t = (b2 * T.sqr(g)) + ((1. - b2) * v) # original
+        #v_t = (b2 * v) + ((1. - b2) * T.sqr(g))
+
         g_t = m_t / (T.sqrt(v_t) + e)
         p_t = p - (lr_t * g_t)
         updates.append((m, m_t))
@@ -111,7 +113,7 @@ def sgd(lr, tparams, grads, inp, cost, hard_attn_up=[]):
     gshared = [T.shared(p.get_value() * numpy.float32(0.), name='%s_grad'%k) for k, p in tparams.iteritems()]
     gsup = [(gs, g) for gs, g in zip(gshared, grads)]
 
-    f_grad_shared = T.function(inp, cost, updates=gsup+hard_attn_up, profile=False)
+    f_grad_shared = T.function(inp, cost, updates=gsup+hard_attn_up, profile=False,on_unused_input='ignore')
 
     pup = [(p, p - lr * g) for p, g in zip(itemlist(tparams), gshared)]
     f_update = T.function([lr], [], updates=pup, profile=False)

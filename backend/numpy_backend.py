@@ -17,6 +17,8 @@ class npwrapper(np.ndarray):
     def __new__(cls, input_array, trainable=True):
         obj = np.asarray(input_array).view(cls)
         obj.trainable = trainable
+        #obj.random = np.random
+        #obj.linalg = np.linalg
         return obj 
 
     def __array_finalize__(self, obj):
@@ -25,16 +27,24 @@ class npwrapper(np.ndarray):
         #print('   obj is %s' % repr(obj))
         if obj is None: return
         self.trainable = getattr(obj, 'trainable', None)
-
+        self.set_value = getattr(obj, 'set_value', self.set_value)
+        #self.linalg = getattr(obj, 'linalg', np.linalg)
+        
     def __array_wrap__(self, out_arr, context=None):
         #print('In __array_wrap__:')
         #print('   self is %s' % repr(self))
         #print('   arr is %s' % repr(out_arr))
         # then just call the parent
         return np.ndarray.__array_wrap__(self, out_arr, context)
+    def set_value(self, value=None):
+        if self.ndim == 0:
+            self.fill(value)
+        else:
+            self[:] = value
+        
 
 
-
+    
 def learning_phase():
     # False = test, True = train
     return _LEARNING_PHASE
@@ -56,7 +66,11 @@ def variable(value, dtype=_FLOATX, name=None):
     '''
     value = npwrapper(np.asarray(value, dtype=dtype))
     return value
+shared = variable
 
+def scalar(name=None, dtype=_FLOATX):
+    return np.asscalar(0,dtype=dtype)
+    
 def gradients(cost, wrt=None, **kwargs):
     '''Pretending to do gradient but actually do nothing. :)
     '''
@@ -94,7 +108,7 @@ def batch_get_value(xs):
     return [get_value(x) for x in xs]
 
 def set_value(x, value):
-    x[:] = value[:]
+    x[:] = value
     return x
     
 
@@ -103,32 +117,40 @@ def RandomStreams(seed = 1234):
     a.seed(seed)
     return a
 
-def normal(shape, mean=0.0, std=1.0, dtype=_FLOATX, seed=None,rng = None):
+def normal(shape=None, mean=0.0, std=1.0, dtype=_FLOATX, seed=None,rng = None):
     if rng is None:
         seed = np.random.randint(1, 10e6)
         rng = np.random.seed(seed=seed)
+    if shape is None:
+        shape = (1)
     return rng.normal(avg=mean, std=std, size=shape).astype(dtype)
 
 
-def uniform(shape, low=0.0, high=1.0, dtype=_FLOATX, rng=None):
+def uniform(shape=None, low=0.0, high=1.0, dtype=_FLOATX, rng=None):
     if rng is None:
         seed = np.random.randint(1, 10e6)
         rng = RandomStreams(seed=seed)
+    if shape is None:
+        shape = (1)
     return rng.uniform(low=low, high=high, size = shape).astype(dtype)
 
 
-def binomial(shape, p=0.0, n =1, dtype=_FLOATX, rng=None):
+def binomial(shape=None, p=0.0, n =1, dtype=_FLOATX, rng=None):
     if rng is None:
         seed = np.random.randint(1, 10e6)
         rng = RandomStreams(seed=seed)
+    if shape is None:
+        shape = p.shape
     return rng.binomial(n=n, p=p,size= shape).astype(dtype)
     
 
-def multinomial(shape, pvals=0.0, n =1, dtype=_FLOATX, rng=None):
+def multinomial(shape=None, p=0.0, n =1, dtype=_FLOATX, rng=None):
     if rng is None:
         seed = np.random.randint(1, 10e6)
         rng = RandomStreams(seed=seed)
-    return rng.binomial(size= shape,n=n, p=pvals).astype(dtype)
+    if shape is None:
+        shape = p.shape
+    return rng.binomial(size= shape,n=n, p=p).astype(dtype)
     
 
 
@@ -367,7 +389,7 @@ def categorical_crossentropy(output, target, from_logits=False):
         output /= output.sum(axis=-1, keepdims=True)
     # avoid numerical instability with _EPSILON clipping
     output = clip(output, _EPSILON, 1.0 - _EPSILON)
-    return T.nnet.categorical_crossentropy(output, target)
+    return np.sum(-target*log(output)) 
 
 
 def sparse_categorical_crossentropy(output, target, from_logits=False):
@@ -851,8 +873,9 @@ def scan(fn,
         #now we need to update the full outputs tensor
         for oind, cur_output in enumerate(cur_outputs):
             if OUTPUTS_AS_INPUT_IND[oind] == 1: #means it's used as inputs
-               outputs_loop[oind][loop_ind] = cur_output
-    
+               outputs_loop[oind][loop_ind+1] = cur_output
+            else:
+               outputs_loop[oind][loop_ind] = cur_output 
     #now we need to prepare the output
     return_outputs =[]
     for rind, o_tensor in enumerate(outputs_loop):

@@ -9,16 +9,14 @@ from utils import activations, initializations, regularizers
 # This function implements the lstm fprop
 # LSTM layer
 def init_lstm(options, params, prefix='lstm', nin=None, dim=None,
-              init='glorot_uniform', inner_init='orthogonal',
-              forget_bias_init='one', activation='tanh',
-              inner_activation='hard_sigmoid',
+              init='norm_weight', inner_init='othogo_weight',
+              forget_bias_init='one', 
+              inner_activation='sigmoid',
               weights=None, dim_ordering= 'th',
               trainable = True, **kwargs):
     init = initializations.get(init)
     inner_init = initializations.get(inner_init)
     forget_bias_init = initializations.get(forget_bias_init)
-    activation = activations.get(activation)
-    inner_activation = activations.get(inner_activation)
     
     if nin is None:
         nin = options['dim_proj']
@@ -41,8 +39,12 @@ def init_lstm(options, params, prefix='lstm', nin=None, dim=None,
                          inner_init((dim,dim),symbolic=False),
                          inner_init((dim,dim),symbolic=False)], axis=1)
     params[get_name(prefix,'U')] =  npwrapper(U, trainable = trainable)
-
-    b  = (forget_bias_init((4 * dim,),symbolic=False)+ 4) 
+    
+    b =   np.hstack((np.zeros(dim),
+                     forget_bias_init((dim),symbolic=False) + 4,
+                     np.zeros(dim),
+                     np.zeros(dim)))   
+    #b  = (forget_bias_init((4 * dim,) + 4,symbolic=False)+ 4) 
     params[get_name(prefix,'b')] = npwrapper(b, trainable = trainable)
 
     return params
@@ -71,7 +73,7 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
 
     nsteps = state_below.shape[0]
     dim = tparams[get_name(prefix,'U')].shape[0]
-
+   
     # if we are dealing with a mini-batch
     if state_below.ndim == 3:
         n_samples = state_below.shape[1]
@@ -86,6 +88,9 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
             
     w_shape = (n_samples, state_below.shape[2])
     u_shape = (n_samples, tparams[get_name(prefix, 'U')].shape[0])
+    dropoutmatrix = get_dropout(shapelist = [w_shape,u_shape], 
+                                dropoutrate=options['lstm_dropout'])
+
     # if we have no mask, we assume all the inputs are valid
     if mask == None:
         mask = T.alloc(1., state_below.shape[0], 1)
@@ -99,9 +104,9 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
         return _x[n*dim:(n+1)*dim]
 
     # one time step of the lstm
-    def _step(m_, x_, h_, c_,dropoutmatrix):
-        if dropoutmatrix is not None:
-            drop_h_ = h_ *dropoutmatrix
+    def _step(m_, x_, h_, c_):
+        if dropoutmatrix[1] is not None:
+            drop_h_ = h_ *dropoutmatrix[1]
         else:
             drop_h_ = h_
         preact = T.dot(T.in_train_phase(drop_h_, h_), tparams[get_name(prefix, 'U')])
@@ -117,9 +122,7 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
 
         return h, c, i, f, o, preact
 
-    
-    dropoutmatrix = get_dropout(shapelist = [w_shape,u_shape], 
-                                dropoutrate=options['lstm_dropout'])
+
     if dropoutmatrix[0] is not None:
         drop_state_below = state_below * dropoutmatrix[0]
     else:
@@ -131,32 +134,28 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
     rval, updates =    T.scan(  _step,
                                 sequences=[mask, state_below],
                                 outputs_info=[init_state, init_memory, None, None, None, None],
-                                non_sequences = [dropoutmatrix[1]],
                                 name=get_name(prefix, '_layers'),
-                                 profile=False)
+                                n_steps=nsteps, profile=False)
     
     return rval
 
 # Conditional LSTM layer with Attention
 
 def init_dynamic_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=None, 
-                           init='glorot_uniform', inner_init='orthogonal',
-                           forget_bias_init='one', activation='tanh',
-                           inner_activation='hard_sigmoid',
-                           dimctx=None, trainable=True, **kwargs):
+                           init='norm_weight', inner_init='ortho_weight',forget_bias_init='one',
+                           ctx_dim=None, proj_ctx_dim=None, trainable=True, **kwargs):
     init = initializations.get(init)
     inner_init = initializations.get(inner_init)
     forget_bias_init = initializations.get(forget_bias_init)
-    activation = activations.get(activation)
-    inner_activation = activations.get(inner_activation)
     
-    #if nin is None:
-    #    nin = options['dim']
-    #if dim is None:
-    #    dim = options['dim']
-    #if dimctx is None:
-    #    dimctx = options['dim']
-
+    if nin is None:
+       nin = options['dim']
+    if dim is None:
+       dim = options['dim']
+    if ctx_dim is None:
+       ctx_dim = options['dim']
+    if proj_ctx_dim is None:
+       proj_ctx_dim = options['dim']
     # input to LSTM, similar to the above, we stack the matricies for compactness, do one
     # dot product, and use the slice function below to get the activations for each "gate"
     #print globals()['norm_weight']
@@ -175,49 +174,52 @@ def init_dynamic_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=No
                          inner_init((dim,dim),symbolic=False),
                          inner_init((dim,dim),symbolic=False)], axis=1)
     params[get_name(prefix,'U')] =  npwrapper(U, trainable = trainable)
-
-    b  = (forget_bias_init((4 * dim,),symbolic=False)+ 4) 
+    b =   np.hstack((np.zeros(dim),
+                     forget_bias_init((dim),symbolic=False) + 4,
+                     np.zeros(dim),
+                     np.zeros(dim)))   
     # bias to LSTM
     params[get_name(prefix,'b')] = npwrapper(b,trainable=trainable)
 
-    # context to LSTM
-    Wc = init((dimctx,dim*4),symbolic=False)
-    params[get_name(prefix,'Wc')] = npwrapper(Wc,trainable=trainable)
+    # context to LSTM hidden
+    Wc2h = init((ctx_dim,dim*4),symbolic=False)
+    params[get_name(prefix,'Wc2h')] = npwrapper(Wc2h,trainable=trainable)
 
-    # attention: context -> hidden
-    Wc_att = inner_init((dimctx,dimctx),symbolic=False)
-    params[get_name(prefix,'Wc_att')] = npwrapper(Wc_att,trainable=trainable)
+    # attention: context -> project context
+    W_c2pc = init((ctx_dim,proj_ctx_dim),symbolic=False)
+    params[get_name(prefix,'W_c2pc')] = npwrapper(W_c2pc,trainable=trainable)
     # attention: hidden bias
-    b_att = initializations.get('zero')((dimctx,),symbolic=False).astype(T.floatX)
-    params[get_name(prefix,'b_att')] =  npwrapper(b_att,trainable=trainable)
-
-    # optional "deep" attention
+    b_c2pc = initializations.get('zero')((proj_ctx_dim,),symbolic=False).astype(T.floatX)
+    params[get_name(prefix,'b_c2pc')] =  npwrapper(b_c2pc,trainable=trainable)
+    
+    # attention: hidden-->project_ctx
+    W_h2pc = init((dim,proj_ctx_dim),symbolic=False)
+    params[get_name(prefix,'W_h2pc')] =  npwrapper(W_h2pc,trainable=trainable)
+    
+    # optional "deep" attention,  context to proj_ctx
     if options['n_layers_att'] > 1:
         for lidx in xrange(1, options['n_layers_att']):
-            params[get_name(prefix,'W_att_%d'%lidx)] =  npwrapper(inner_init((dimctx,dimctx),symbolic=False),trainable=trainable)
-            params[get_name(prefix,'b_att_%d'%lidx)] =  npwrapper(initializations.get('zero')((dimctx,),symbolic=False).astype(T.floatX),trainable=trainable)
-
-
+            params[get_name(prefix,'W_c2pc_%d'%lidx)] =  npwrapper(inner_init((proj_ctx_dim,proj_ctx_dim),symbolic=False),trainable=trainable)
+            params[get_name(prefix,'b_c2pc_%d'%lidx)] =  npwrapper(np.zeros((proj_ctx_dim,)).astype(T.floatX),trainable=trainable)
+ 
     if options['attn_type'] == 'dynamic':
         # get_w  parameters for reading operation
        if options['addressing'] == 'softmax':
-            params[get_name(prefix,'W_k_read')] =   npwrapper(init((dim, dimctx),symbolic=False),trainable=trainable)
-            params[get_name(prefix,'b_k_read')] =   npwrapper(initializations.get('zero')((dimctx),symbolic=False),trainable=trainable)
-            params[get_name(prefix,'W_address')] =  npwrapper(init((dimctx, dimctx),symbolic=False),trainable=trainable)
+            params[get_name(prefix,'W_k_read')] =   npwrapper(inner_init((proj_ctx_dim, proj_ctx_dim),symbolic=False),trainable=trainable)
+            params[get_name(prefix,'b_k_read')] =   npwrapper(initializations.get('zero')((proj_ctx_dim),symbolic=False),trainable=trainable)
+            params[get_name(prefix,'W_address')] =  npwrapper(inner_init((proj_ctx_dim, proj_ctx_dim),symbolic=False),trainable=trainable)
 
        elif options['addressing'] == 'ntm':
-            params[get_name(prefix,'W_k_read')] =  npwrapper(init((dim, dimctx),symbolic=False),trainable=trainable)
-            params[get_name(prefix,'b_k_read')] =  npwrapper(actications.get('zero')((dimctx),symbolic=False),trainable=trainable)
-            params[get_name(prefix,'W_c_read')] =  npwrapper(init((dimctx, 3),symbolic=False),trainable=trainable)
-            params[get_name(prefix,'b_c_read')] =  npwrapper(initializations.get('zero')((3),symbolic=False),trainable=trainable)
-            params[get_name(prefix,'W_s_read')] =  npwrapper(init((dim,  options['shift_range']),symbolic=False),trainable=trainable)
-            params[get_name(prefix,'b_s_read')] =  npwrapper(initializations.get('zero')((options['shift_range']),symbolic=False),trainable=trainable)
+            params[get_name(prefix,'W_k_read')] =  npwrapper(inner_init((proj_ctx_dim, proj_ctx_dim),symbolic=False),trainable=trainable)
+            params[get_name(prefix,'b_k_read')] =  npwrapper(initializations.get('zero')((proj_ctx_dim),symbolic=False),trainable=trainable)
+            params[get_name(prefix,'W_c_read')] =  npwrapper(inner_init((proj_ctx_dim, 3),symbolic=False),trainable=trainable)
+            params[get_name(prefix,'b_c_read')] =  npwrapper(initializations.get('zero')((3,),symbolic=False),trainable=trainable)
+            params[get_name(prefix,'W_s_read')] =  npwrapper(inner_init((proj_ctx_dim,  options['shift_range']),symbolic=False),trainable=trainable)
+            params[get_name(prefix,'b_s_read')] =  npwrapper(initializations.get('zero')((options['shift_range'],),symbolic=False),trainable=trainable)
     else:
-        # attention: LSTM -> hidden
-        Wd_att = init((dim,dimctx),symbolic=False)
-        params[get_name(prefix,'Wd_att')] =  npwrapper(Wd_att,trainable=trainable)
+        
         # attention:
-        U_att = init((dimctx,1),symbolic=False)
+        U_att = init((proj_ctx_dim,1),symbolic=False)
         params[get_name(prefix,'U_att')] =  npwrapper(U_att,trainable=trainable)
         c_att = initializations.get('zero')((1,),symbolic=False)
         params[get_name(prefix, 'c_tt')] =  npwrapper(c_att,trainable=trainable)
@@ -233,8 +235,8 @@ def init_dynamic_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=No
 
 def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=None,
                             context=None, one_step=False,init_memory=None, init_state=None, 
-                            rng=None, sampling=True,wr_tm1 = None, argmax=False,
-                            activation='tanh', inner_activation='hard_sigmoid',**kwargs):
+                            rng=None, sampling=True,init_alpha = None, argmax=False,
+                            activation='tanh', inner_activation='sigmoid',**kwargs):
     '''
     Parameters
     ----------
@@ -245,18 +247,18 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
     Returns
     -------
     '''
-    def get_dropout(shapelist=[None,None,None], dropoutrate = 0):
+    def get_dropout(shapelist=[None], dropoutrate = 0):
         #if self.seed is None:
-        if dropoutrate is not None:
+        if dropoutrate:
           retain_prob = 1- dropoutrate
           #retain_prob_U = 1- dropoutrate[0]
 
           W1 = T.binomial(shape= shapelist[0], p = retain_prob, dtype = T.floatX)/retain_prob
-          W2 = T.binomial(shape= shapelist[1], p = retain_prob, dtype = T.floatX)/retain_prob
-          W3 = T.binomial(shape= shapelist[2], p = retain_prob, dtype = T.floatX)/retain_prob
-          return [W1,[W2,W3]]
+          #W2 = T.binomial(shape= shapelist[0], p = retain_prob, dtype = T.floatX)/retain_prob
+          #W3 = T.binomial(shape= shapelist[2], p = retain_prob, dtype = T.floatX)/retain_prob
+          return [W1]
         else:
-          return [None, [None,None]]
+          return [None]
 
     activation = activations.get(activation)
     inner_activation = activations.get(inner_activation)
@@ -284,43 +286,39 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
             state_below = T.expand_dims(state_below, dim=-1)
             if mask is None: 
                mask = T.alloc(1., 1,state_below.shape[0])
-        # initial/previous state
+    
+    nsteps = state_below.shape[0]
+    # initial/previous state
     if init_state is None:
         init_state = T.alloc(0., n_samples, dim)
     # initial/previous memory
     if init_memory is None:
         init_memory = T.alloc(0., n_samples, dim)
 
-    w_shape   = (n_samples, state_below.shape[-1])
-    #att_shape = (1,batchsize, tparams[get_name(prefix,'Wd_att')].shape[0])
-    u_shape   = (n_samples, tparams[get_name(prefix, 'U')].shape[0])
-    ctx_shape = (n_samples, tparams[get_name(prefix, 'Wc')].shape[0])
-        
+    #w_shape   = (n_samples, state_below.shape[-1])
+    #att_shape = (1,batchsize, tparams[get_name(prefix,'W_h2pc')].shape[0])
+    u_shape   = (n_samples, 3*tparams[get_name(prefix, 'U')].shape[0])
+    #ctx_shape = (n_samples, tparams[get_name(prefix, 'Wc')].shape[0])
+
     # projected x
-    # state_below is timesteps*num samples by d in training (TODO change to notation of paper)
+    # state_below is timesteps*num samples by d in training 
     # this is n * d during sampling
-    dropoutmatrix = get_dropout(shapelist = [w_shape,u_shape,ctx_shape], dropoutrate=options['lstm_dropout'])
-    
-    if dropoutmatrix[0] is not None:
-       drop_state_below = state_below * dropoutmatrix[0]
-    else:
-       drop_state_below = state_below
-    state_below = T.in_train_phase(drop_state_below, state_below)
+    dropoutmatrix = get_dropout(shapelist = [u_shape], dropoutrate=options['lstm_dropout'])   
+    #drop_state_below   =   state_below *dropoutmatrix[0] if dropoutmatrix[0] is not None else state_below
+    #tate_below = T.in_train_phase(drop_state_below, state_below)
+     
     state_below = T.dot(state_below, tparams[get_name(prefix, 'W')]) + tparams[get_name(prefix, 'b')]
     
     # infer lstm dimension
     dim = tparams[get_name(prefix, 'U')].shape[0]   
     # projected context
-    pctx_ = T.dot(context, tparams[get_name(prefix,'Wc_att')]) + tparams[get_name(prefix, 'b_att')]
+    pctx_ = T.dot(context, tparams[get_name(prefix,'W_c2pc')]) + tparams[get_name(prefix, 'b_c2pc')]
     if options['n_layers_att'] > 1:
         for lidx in xrange(1, options['n_layers_att']):
-            pctx_ = T.dot(pctx_, tparams[get_name(prefix,'W_att_%d'%lidx)])+tparams[get_name(prefix, 'b_att_%d'%lidx)]
+            pctx_ = T.dot(pctx_, tparams[get_name(prefix,'W_c2pc_%d'%lidx)])+tparams[get_name(prefix, 'b_c2pc_%d'%lidx)]
             # note to self: this used to be options['n_layers_att'] - 1, so no extra non-linearity if n_layers_att < 3
             if lidx < options['n_layers_att']:
                 pctx_ = T.tanh(pctx_)
-
-    
-
     # additional parameters for stochastic hard attention
     if options['attn_type'] == 'stochastic':
         # temperature for softmax
@@ -340,7 +338,7 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
 
     def _get_content_w( beta, k, M):
         num = beta[:, None] * cosine_distance(M, k)
-        return softmax(num)
+        return T.softmax(num)
 
     def _get_location_w(g, s, C, gamma, wc, w_tm1):
         wg = g[:, None] * wc + (1-g[:, None])*w_tm1
@@ -353,13 +351,13 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
         k = T.tanh(T.dot(h, W_k) + b_k)  # + 1e-6
         #k = theano.printing.Print('[Debug] k shape is: ', attrs=("shape",))(k)
         c = T.dot(h, W_c) + b_c
-        beta = T.relu(c[:, 0]) + 1e-4
+        beta = T.softplus(c[:, 0]) + 1e-4
         g = T.sigmoid(c[:, 1])
-        gamma = T.relu(c[:, 2]) + 1.0001
+        gamma = T.softplus(c[:, 2]) + 1.0001
         s = T.softmax(T.dot(h, W_s) + b_s)
         return k, beta, g, gamma, s
 
-    def _step(m_, x_, h_, c_, a_, as_,ct_, pctx_, wr_tm1 =None,  dropoutmatrix=None):
+    def _step(m_, x_, h_, c_, a_, as_,ct_, pctx_=None):
         """ Each variable is one time slice of the LSTM
         Only use it if you use wr_tm1, otherwise use a wrapper that does not have wr_tm1
 
@@ -382,12 +380,15 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
         # [described in  equations (4), (5), (6) in
         # section "3.1.2 Decoder: Long Short Term Memory Network]
         pctx_list = [] # used to store pctx_ before activation and multiplication with U.
+        pstate_ = T.dot(h_, tparams[get_name(prefix,'W_h2pc')])
+        pctx_ = pctx_ + pstate_[:,None,:]
+        pctx_list.append(pctx_)
+        pctx_ = T.tanh(pctx_)  #pctx_ is no longer pctx_list[0] anymore.
 
 
         if options['attn_type'] == 'dynamic':
-            pctx_list.append(pctx_)
             # get controller output
-            pstate_ =  h_
+            #pstate_ =  h_
             if options['addressing'] == 'ntm':
                 W_k_read = tparams[get_name(prefix,'W_k_read')]
                 b_k_read = tparams[get_name(prefix,'b_k_read')]
@@ -404,7 +405,8 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
 
                 alpha_pre = wc_read
                 alpha_shp = wc_read.shape
-
+                
+                wr_tm1 = a_
                 alpha   =  _get_location_w(g_read, s_read, C, gamma_read,
                                         wc_read, wr_tm1)
                 #ctx_ =  return (w[:, :, None]*M).sum(axis=1)  #_read(wr_t, M_tm1)
@@ -430,17 +432,7 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
             # attention computation
             # [described in  equations (4), (5), (6) in
             # section "3.1.2 Decoder: Long Short Term Memory Network]
-
-            # if dropoutmatrix[0] is not None:
-            #     drop_h_ = h_ *dropoutmatrix[0]
-            # else:
-            #     drop_h_ = h_
-            # pstate_ = T.dot(T.in_train_phase(drop_h_, h_), tparams[get_name(prefix,'Wd_att')])
-            pstate_ = T.dot(h_, tparams[get_name(prefix,'Wd_att')])
-            pctx_ = pctx_ + pstate_[:,None,:]
-            pctx_list.append(pctx_)
-            pctx_ = T.tanh(pctx_)  #pctx_ is no longer pctx_list[0] anymore.
-
+            
             alpha = T.dot(pctx_, tparams[get_name(prefix,'U_att')])+tparams[get_name(prefix, 'c_tt')]
             alpha_pre = alpha
             alpha_shp = alpha.shape
@@ -450,7 +442,6 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
                 alpha_sample = alpha # you can return something else reasonable here to debug
             elif options['attn_type'] == 'stochastic':
                 alpha = T.softmax(temperature_c*alpha.reshape([alpha_shp[0],alpha_shp[1]])) # softmax
-                # TODO return alpha_sample
                 if sampling:
                     alpha_sample = h_sampling_mask * T.multinomial(pvals=alpha,dtype=T.floatX, rng=rng)\
                                    + (1.-h_sampling_mask) * alpha
@@ -468,17 +459,20 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
             ctx_ = sel_[:,None] * ctx_
 
 
-        #applied bayesian LSTM
-        drop_h_   =   h_ *dropoutmatrix[0] if dropoutmatrix[0] is not None else h_
-        drop_ctx_ = ctx_ *dropoutmatrix[1] if dropoutmatrix[1] is not None else ctx_
-
-        preact = T.dot(T.in_train_phase(drop_h_, h_), tparams[get_name(prefix, 'U')])
+        
+        preact = T.dot(h_, tparams[get_name(prefix, 'U')])
         preact += x_
-        preact += T.dot(T.in_train_phase(drop_ctx_, ctx_), tparams[get_name(prefix, 'Wc')])
+        #preact += T.dot(T.in_train_phase(drop_ctx_, ctx_), tparams[get_name(prefix, 'Wc')])
+        preact += T.dot(ctx_, tparams[get_name(prefix, 'Wc2h')])
+        
+        #applied bayesian LSTM
+        cut_preact = _slice(preact, 0, 3*dim)
+        drop_cut_preact   =   cut_preact *dropoutmatrix[0] if dropoutmatrix[0] is not None else cut_preact
+        cut_preact = T.in_train_phase(drop_cut_preact, cut_preact)
 
-        i = inner_activation(_slice(preact, 0, dim))
-        f = inner_activation(_slice(preact, 1, dim))
-        o = inner_activation(_slice(preact, 2, dim))
+        i = inner_activation(_slice(cut_preact, 0, dim))
+        f = inner_activation(_slice(cut_preact, 1, dim))
+        o = inner_activation(_slice(cut_preact, 2, dim))
         c = activation(_slice(preact, 3, dim))
         # compute the new memory/hidden state
         # if the mask is 0, just copy the previous state
@@ -489,32 +483,29 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
         h = m_[:,None] * h + (1. - m_)[:,None] * h_
 
         rval = [h, c, alpha, alpha_sample, ctx_]
-        if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
-            rval += [wr_tm1]
 
         if options['selector']:
             rval += [sel_]
 
         rval += [pstate_, pctx_, i, f, o, preact, alpha_pre]+pctx_list
         return rval
-
+        
+    
+    _step0 = _step    
     #when you have an option about what you want to return in outputs_info. Wrapper _step
-    if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
-        _step0 = _step
-    else:
-        def f(m_, x_, h_, c_, a_, as_, ct_, pctx_,dropoutmatrix):
-            return _step(m_, x_, h_, c_, a_, as_, ct_,pctx_,dropoutmatrix=dropoutmatrix)
-        _step0 = f # m_, x_, h_, c_, a_, as_,  ct_,pctx_: _step(m_, x_, h_, c_, a_, as_, ct_, pctx_)
+    #if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
+    #    _step0 = _step
+    #else:
+    #    def f(m_, x_, h_, c_, a_, as_, ct_, pctx_):
+    #        return _step(m_, x_, h_, c_, a_, as_, ct_, None, pctx_)
+    #    _step0 = f # m_, x_, h_, c_, a_, as_,  ct_,pctx_: _step(m_, x_, h_, c_, a_, as_, ct_, pctx_)
 
-    if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
-        if wr_tm1 == None:
-           wr_tm1= T.alloc(0., n_samples, pctx_.shape[1])  #w_tm1
+    #if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
+    #    if wr_tm1 == None:
+    #       wr_tm1= T.alloc(0., n_samples, pctx_.shape[1])  #w_tm1
 
     if one_step:
-        if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
-            rval = _step0(mask[0], state_below[0], init_state, init_memory, None,None, None, wr_tm1, pctx_, dropoutmatrix = dropoutmatrix[1])
-        else:
-            rval = _step0(mask[0], state_below[0], init_state, init_memory, None,None, None, pctx_,dropoutmatrix = dropoutmatrix[1])
+        rval = _step0(mask[0], state_below[0], init_state, init_memory, init_alpha,None, None, pctx_)
         # for every rval, we remove one single axis from it. # we also need to be careful if we really changed state
         # and mask out of this function.
         return rval
@@ -528,8 +519,6 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
                         T.alloc(0., n_samples, context.shape[2])]  # ct_
 
         
-        if options['attn_type'] == 'dynamic' and options['addressing'] == 'ntm':
-            outputs_info += [wr_tm1]  #w_tm1
         if options['selector']:
             outputs_info += [None]  
             #why do you want it to be an paramter when you dont use it???
@@ -542,10 +531,10 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
                          None,
                          None,
                          None] + [None] # *options['n_layers_att']
-        rval, updates = T.scan(_step0,
-                                    sequences=seqs,
-                                    outputs_info=outputs_info,
-                                    non_sequences=[pctx_, dropoutmatrix[1]],
-                                    name=get_name(prefix, '_layers'),
-                                    profile=False)           
+        rval, updates = T.scan( _step0,
+                                sequences=seqs,
+                                outputs_info=outputs_info,
+                                non_sequences=[pctx_],
+                                name=get_name(prefix, '_layers'),
+                                n_steps=nsteps, profile=False)           
         return rval, updates

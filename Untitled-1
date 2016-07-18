@@ -1,0 +1,230 @@
+ValueError: all the input array dimensions except for the concatenation axis must match exactly
+Apply node that caused the error: Join(TensorConstant{0}, Elemwise{Composite{(i0 * Cast{float32}(LT(i1, i2)))}}[(0, 1)].0, Elemwise{Composite{(i0 * Cast{float32}(LT(i1, i2)))}}[(0, 1)].0)
+Toposort index: 125
+Inputs types: [TensorType(int8, scalar), TensorType(float32, (True, False, False)), TensorType(float32, (True, False, False))]
+Inputs shapes: [(), (1, 3, 128), (1, 3, 512)]
+Inputs strides: [(), (1536, 512, 4), (6144, 2048, 4)]
+Inputs values: [array(0, dtype=int8), 'not shown', 'not shown']
+Inputs type_num: [1, 11, 11]
+Outputs clients: [[Subtensor{int64}(Join.0, Constant{0}), Subtensor{int64}(Join.0, Constant{1})]]
+
+Backtrace when the node is created(use Theano flag traceback.limit=N to make it longer):
+  File "<ipython-input-3-570c41197ec9>", line 1, in <module>
+    runfile('/home/yuanpuxie/OwnCloud/WorkStation/Medical_Caption/Code/evaluate_coco.py', wdir='/home/yuanpuxie/OwnCloud/WorkStation/Medical_Caption/Code')
+  File "/home/yuanpuxie/local/anaconda2/lib/python2.7/site-packages/spyderlib/widgets/externalshell/sitecustomize.py", line 699, in runfile
+    execfile(filename, namespace)
+  File "/home/yuanpuxie/local/anaconda2/lib/python2.7/site-packages/spyderlib/widgets/externalshell/sitecustomize.py", line 81, in execfile
+    builtins.execfile(filename, *where)
+  File "/home/yuanpuxie/OwnCloud/WorkStation/Medical_Caption/Code/evaluate_coco.py", line 123, in <module>
+    main(defaults)
+  File "/home/yuanpuxie/OwnCloud/WorkStation/Medical_Caption/Code/evaluate_coco.py", line 35, in main
+    _, validerr, _ = train(**params)
+  File "Core/train.py", line 195, in train
+    build_model(tparams, model_options)
+  File "Core/engine.py", line 164, in build_model
+    sampling=sampling)
+  File "Core/recurrent.py", line 550, in dynamic_lstm_cond_layer
+    profile=False)
+
+Debugprint of the apply node: 
+Join [id A] <TensorType(float32, 3D)> ''   
+ |TensorConstant{0} [id B] <TensorType(int8, scalar)>
+ |Elemwise{Composite{(i0 * Cast{float32}(LT(i1, i2)))}}[(0, 1)] [id C] <TensorType(float32, (True, False, False))> ''   
+ | |TensorConstant{(1, 1, 1) of 2.0} [id D] <TensorType(float32, (True, True, True))>
+ | |InplaceDimShuffle{x,0,1} [id E] <TensorType(float32, (True, False, False))> ''   
+ | | |mrg_uniform{TensorType(float32, matrix),inplace}.1 [id F] <TensorType(float32, matrix)> ''   
+ | |   |<TensorType(int32, matrix)> [id G] <TensorType(int32, matrix)>
+ | |   |MakeVector{dtype='int64'} [id H] <TensorType(int64, vector)> ''   
+ | |     |Shape_i{1} [id I] <TensorType(int64, scalar)> ''   
+ | |     | |x [id J] <TensorType(int64, matrix)>
+ | |     |Shape_i{0} [id K] <TensorType(int64, scalar)> ''   
+ | |       |decoder_U [id L] <TensorType(float32, matrix)>
+ | |TensorConstant{(1, 1, 1) of 0.5} [id M] <TensorType(float32, (True, True, True))>
+ |Elemwise{Composite{(i0 * Cast{float32}(LT(i1, i2)))}}[(0, 1)] [id N] <TensorType(float32, (True, False, False))> ''   
+   |TensorConstant{(1, 1, 1) of 2.0} [id D] <TensorType(float32, (True, True, True))>
+   |InplaceDimShuffle{x,0,1} [id O] <TensorType(float32, (True, False, False))> ''   
+   | |mrg_uniform{TensorType(float32, matrix),inplace}.1 [id P] <TensorType(float32, matrix)> ''   
+   |   |<TensorType(int32, matrix)> [id Q] <TensorType(int32, matrix)>
+   |   |MakeVector{dtype='int64'} [id R] <TensorType(int64, vector)> ''   
+   |     |Shape_i{1} [id I] <TensorType(int64, scalar)> ''   
+   |     |Shape_i{0} [id S] <TensorType(int64, scalar)> ''   
+   |       |decoder_Wc [id T] <TensorType(float32, matrix)>
+   |TensorConstant{(1, 1, 1) of 0.5} [id M] <TensorType(float32, (True, True, True))>
+   
+Storage map footprint:
+ - ff_logit_W, Shared Input, Shape: (511, 10000), ElemSize: 4 Byte(s), TotalSize: 20440000 Byte(s)
+ - embeding_W, Shared Input, Shape: (10000, 511), ElemSize: 4 Byte(s), TotalSize: 20440000 Byte(s)
+ - ctx, Input, Shape: (3, 196, 512), ElemSize: 4 Byte(s), TotalSize: 1204224 Byte(s)
+ - decoder_W_att_1, Shared Input, Shape: (512, 512), ElemSize: 4 Byte(s), TotalSize: 1048576 Byte(s)
+ - decoder_Wc, Shared Input, Shape: (512, 512), ElemSize: 4 Byte(s), TotalSize: 1048576 Byte(s)
+ - decoder_W_address, Shared Input, Shape: (512, 512), ElemSize: 4 Byte(s), TotalSize: 1048576 Byte(s)
+ - ff_init_1_W, Shared Input, Shape: (512, 512), ElemSize: 4 Byte(s), TotalSize: 1048576 Byte(s)
+ - decoder_Wc_att, Shared Input, Shape: (512, 512), ElemSize: 4 Byte(s), TotalSize: 1048576 Byte(s)
+ - ff_logit_ctx_W, Shared Input, Shape: (512, 511), ElemSize: 4 Byte(s), TotalSize: 1046528 Byte(s)
+ - Reshape{2}.0, Shape: (511, 512), ElemSize: 4 Byte(s), TotalSize: 1046528 Byte(s)
+ - decoder_W, Shared Input, Shape: (511, 512), ElemSize: 4 Byte(s), TotalSize: 1046528 Byte(s)
+ - <TensorType(int32, matrix)>, Shared Input, Shape: (15360, 6), ElemSize: 4 Byte(s), TotalSize: 368640 Byte(s)
+ - <TensorType(int32, matrix)>, Shared Input, Shape: (15360, 6), ElemSize: 4 Byte(s), TotalSize: 368640 Byte(s)
+ - mrg_uniform{TensorType(float32, matrix),inplace}.0, Shape: (15360, 6), ElemSize: 4 Byte(s), TotalSize: 368640 Byte(s)
+ - <TensorType(int32, matrix)>, Shared Input, Shape: (15360, 6), ElemSize: 4 Byte(s), TotalSize: 368640 Byte(s)
+ - <TensorType(int32, matrix)>, Shared Input, Shape: (15360, 6), ElemSize: 4 Byte(s), TotalSize: 368640 Byte(s)
+ - mrg_uniform{TensorType(float32, matrix),inplace}.0, Shape: (15360, 6), ElemSize: 4 Byte(s), TotalSize: 368640 Byte(s)
+ - mrg_uniform{TensorType(float32, matrix),inplace}.0, Shape: (15360, 6), ElemSize: 4 Byte(s), TotalSize: 368640 Byte(s)
+ - <TensorType(int32, matrix)>, Shared Input, Shape: (15360, 6), ElemSize: 4 Byte(s), TotalSize: 368640 Byte(s)
+ - <TensorType(int32, matrix)>, Shared Input, Shape: (15360, 6), ElemSize: 4 Byte(s), TotalSize: 368640 Byte(s)
+ - mrg_uniform{TensorType(float32, matrix),inplace}.0, Shape: (15360, 6), ElemSize: 4 Byte(s), TotalSize: 368640 Byte(s)
+ - decoder_W_k_read, Shared Input, Shape: (128, 512), ElemSize: 4 Byte(s), TotalSize: 262144 Byte(s)
+ - decoder_U, Shared Input, Shape: (128, 512), ElemSize: 4 Byte(s), TotalSize: 262144 Byte(s)
+ - ff_state_W, Shared Input, Shape: (512, 128), ElemSize: 4 Byte(s), TotalSize: 262144 Byte(s)
+ - ff_memory_W, Shared Input, Shape: (512, 128), ElemSize: 4 Byte(s), TotalSize: 262144 Byte(s)
+ - ff_logit_lstm_W, Shared Input, Shape: (128, 511), ElemSize: 4 Byte(s), TotalSize: 261632 Byte(s)
+ - Dot22.0, Shape: (48, 512), ElemSize: 4 Byte(s), TotalSize: 98304 Byte(s)
+ - AllocEmpty{dtype='float32'}.0, Shape: (16, 3, 512), ElemSize: 4 Byte(s), TotalSize: 98304 Byte(s)
+ - Elemwise{Add}[(0, 0)].0, Shape: (16, 3, 512), ElemSize: 4 Byte(s), TotalSize: 98304 Byte(s)
+ - Subtensor{int64:int64:int8}.0, Shape: (16, 3, 512), ElemSize: 4 Byte(s), TotalSize: 98304 Byte(s)
+ - Reshape{3}.0, Shape: (16, 3, 512), ElemSize: 4 Byte(s), TotalSize: 98304 Byte(s)
+ - IncSubtensor{InplaceSet;:int64:}.0, Shape: (16, 3, 512), ElemSize: 4 Byte(s), TotalSize: 98304 Byte(s)
+ - Reshape{2}.0, Shape: (48, 511), ElemSize: 4 Byte(s), TotalSize: 98112 Byte(s)
+ - Reshape{3}.0, Shape: (16, 3, 511), ElemSize: 4 Byte(s), TotalSize: 98112 Byte(s)
+ - Elemwise{Composite{Switch(i0, (i1 * i2 * i3), i2)}}.0, Shape: (16, 3, 511), ElemSize: 4 Byte(s), TotalSize: 98112 Byte(s)
+ - Alloc.0, Shape: (16, 3, 511), ElemSize: 4 Byte(s), TotalSize: 98112 Byte(s)
+ - AdvancedSubtensor1.0, Shape: (48, 511), ElemSize: 4 Byte(s), TotalSize: 98112 Byte(s)
+ - IncSubtensor{InplaceSet;int64::int64}.0, Shape: (16, 3, 511), ElemSize: 4 Byte(s), TotalSize: 98112 Byte(s)
+ - Subtensor{:int64:}.0, Shape: (15, 3, 511), ElemSize: 4 Byte(s), TotalSize: 91980 Byte(s)
+ - ff_logit_b, Shared Input, Shape: (10000,), ElemSize: 4 Byte(s), TotalSize: 40000 Byte(s)
+ - IncSubtensor{InplaceSet;:int64:}.0, Shape: (16, 3, 196), ElemSize: 4 Byte(s), TotalSize: 37632 Byte(s)
+ - AllocEmpty{dtype='float32'}.0, Shape: (16, 3, 196), ElemSize: 4 Byte(s), TotalSize: 37632 Byte(s)
+ - IncSubtensor{InplaceSet;:int64:}.0, Shape: (16, 3, 128), ElemSize: 4 Byte(s), TotalSize: 24576 Byte(s)
+ - AllocEmpty{dtype='float32'}.0, Shape: (16, 3, 128), ElemSize: 4 Byte(s), TotalSize: 24576 Byte(s)
+ - Rebroadcast{0}.0, Shape: (1, 3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - InplaceDimShuffle{x,0,1}.0, Shape: (1, 3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - Elemwise{Composite{(i0 * Cast{float32}(LT(i1, i2)))}}[(0, 1)].0, Shape: (1, 3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - Dot22.0, Shape: (3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - mean, Shape: (3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - Elemwise{Composite{Switch(i0, (Composite{(Abs((i0 + i1)) + i0 + i1)}(i1, i2) * Cast{float32}(LT(i3, i4))), (i4 * Composite{(Abs((i0 + i1)) + i0 + i1)}(i1, i2)))}}[(0, 1)].0, Shape: (3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - Sum{axis=[1], acc_dtype=float64}.0, Shape: (3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - mrg_uniform{TensorType(float32, matrix),inplace}.1, Shape: (3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - Alloc.0, Shape: (3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - InplaceDimShuffle{x,0,1}.0, Shape: (1, 3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - mrg_uniform{TensorType(float32, matrix),inplace}.1, Shape: (3, 512), ElemSize: 4 Byte(s), TotalSize: 6144 Byte(s)
+ - InplaceDimShuffle{x,0,1}.0, Shape: (1, 3, 511), ElemSize: 4 Byte(s), TotalSize: 6132 Byte(s)
+ - mrg_uniform{TensorType(float32, matrix),inplace}.1, Shape: (3, 511), ElemSize: 4 Byte(s), TotalSize: 6132 Byte(s)
+ - Elemwise{Composite{Cast{float32}(LT(i0, i1))}}[(0, 0)].0, Shape: (1, 3, 511), ElemSize: 4 Byte(s), TotalSize: 6132 Byte(s)
+ - InplaceDimShuffle{x,0,1}.0, Shape: (1, 3, 196), ElemSize: 4 Byte(s), TotalSize: 2352 Byte(s)
+ - Rebroadcast{0}.0, Shape: (1, 3, 196), ElemSize: 4 Byte(s), TotalSize: 2352 Byte(s)
+ - Alloc.0, Shape: (3, 196), ElemSize: 4 Byte(s), TotalSize: 2352 Byte(s)
+ - decoder_b_k_read, Shared Input, Shape: (512,), ElemSize: 4 Byte(s), TotalSize: 2048 Byte(s)
+ - decoder_b_att_1, Shared Input, Shape: (512,), ElemSize: 4 Byte(s), TotalSize: 2048 Byte(s)
+ - ff_init_1_b, Shared Input, Shape: (512,), ElemSize: 4 Byte(s), TotalSize: 2048 Byte(s)
+ - decoder_b_att, Shared Input, Shape: (512,), ElemSize: 4 Byte(s), TotalSize: 2048 Byte(s)
+ - decoder_b, Shared Input, Shape: (512,), ElemSize: 4 Byte(s), TotalSize: 2048 Byte(s)
+ - InplaceDimShuffle{x,0}.0, Shape: (1, 512), ElemSize: 4 Byte(s), TotalSize: 2048 Byte(s)
+ - InplaceDimShuffle{x,x,0}.0, Shape: (1, 1, 512), ElemSize: 4 Byte(s), TotalSize: 2048 Byte(s)
+ - InplaceDimShuffle{x,0}.0, Shape: (1, 512), ElemSize: 4 Byte(s), TotalSize: 2048 Byte(s)
+ - ff_logit_ctx_b, Shared Input, Shape: (511,), ElemSize: 4 Byte(s), TotalSize: 2044 Byte(s)
+ - ff_logit_lstm_b, Shared Input, Shape: (511,), ElemSize: 4 Byte(s), TotalSize: 2044 Byte(s)
+ - Elemwise{Composite{(i0 * Cast{float32}(LT(i1, i2)))}}[(0, 1)].0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - AllocEmpty{dtype='float32'}.0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - mrg_uniform{TensorType(float32, matrix),inplace}.1, Shape: (3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - Rebroadcast{0}.0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - Dot22.0, Shape: (3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - InplaceDimShuffle{x,0,1}.0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - Elemwise{Add}[(0, 0)].0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - InplaceDimShuffle{x,0,1}.0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - Elemwise{Tanh}[(0, 0)].0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - InplaceDimShuffle{x,0,1}.0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - Dot22.0, Shape: (3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - IncSubtensor{InplaceSet;:int64:}.0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - Elemwise{Add}[(0, 0)].0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - Elemwise{Tanh}[(0, 0)].0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - Rebroadcast{0}.0, Shape: (1, 3, 128), ElemSize: 4 Byte(s), TotalSize: 1536 Byte(s)
+ - InplaceDimShuffle{x,x,0}.0, Shape: (1, 1, 128), ElemSize: 4 Byte(s), TotalSize: 512 Byte(s)
+ - decoder_W_sel, Shared Input, Shape: (128, 1), ElemSize: 4 Byte(s), TotalSize: 512 Byte(s)
+ - ff_state_b, Shared Input, Shape: (128,), ElemSize: 4 Byte(s), TotalSize: 512 Byte(s)
+ - ff_memory_b, Shared Input, Shape: (128,), ElemSize: 4 Byte(s), TotalSize: 512 Byte(s)
+ - InplaceDimShuffle{x,x,0}.0, Shape: (1, 1, 128), ElemSize: 4 Byte(s), TotalSize: 512 Byte(s)
+ - Reshape{1}.0, Shape: (48,), ElemSize: 8 Byte(s), TotalSize: 384 Byte(s)
+ - x, Input, Shape: (16, 3), ElemSize: 8 Byte(s), TotalSize: 384 Byte(s)
+ - InplaceDimShuffle{0,1,x}.0, Shape: (16, 3, 1), ElemSize: 4 Byte(s), TotalSize: 192 Byte(s)
+ - mask, Input, Shape: (16, 3), ElemSize: 4 Byte(s), TotalSize: 192 Byte(s)
+ - Elemwise{sub,no_inplace}.0, Shape: (16, 3, 1), ElemSize: 4 Byte(s), TotalSize: 192 Byte(s)
+ - Subtensor{int64:int64:int8}.0, Shape: (16, 3), ElemSize: 4 Byte(s), TotalSize: 192 Byte(s)
+ - MakeVector{dtype='int64'}.0, Shape: (3,), ElemSize: 8 Byte(s), TotalSize: 24 Byte(s)
+ - MakeVector{dtype='int64'}.0, Shape: (3,), ElemSize: 8 Byte(s), TotalSize: 24 Byte(s)
+ - MakeVector{dtype='int64'}.0, Shape: (2,), ElemSize: 8 Byte(s), TotalSize: 16 Byte(s)
+ - MakeVector{dtype='int64'}.0, Shape: (2,), ElemSize: 8 Byte(s), TotalSize: 16 Byte(s)
+ - MakeVector{dtype='int64'}.0, Shape: (2,), ElemSize: 8 Byte(s), TotalSize: 16 Byte(s)
+ - MakeVector{dtype='int64'}.0, Shape: (2,), ElemSize: 8 Byte(s), TotalSize: 16 Byte(s)
+ - MakeVector{dtype='int64'}.0, Shape: (2,), ElemSize: 8 Byte(s), TotalSize: 16 Byte(s)
+ - MakeVector{dtype='int64'}.0, Shape: (2,), ElemSize: 8 Byte(s), TotalSize: 16 Byte(s)
+ - MakeVector{dtype='int64'}.0, Shape: (2,), ElemSize: 8 Byte(s), TotalSize: 16 Byte(s)
+ - TensorConstant{(1,) of -1}, Shape: (1,), ElemSize: 8 Byte(s), TotalSize: 8 Byte(s)
+ - Shape_i{0}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{Composite{Switch(i0, Switch(LT((i1 + i2), i3), i3, (i1 + i2)), Switch(LT(i1, i2), i1, i2))}}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{Composite{Switch(i0, i1, minimum(i2, i3))}}[(0, 2)].0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{1}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{0}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{Composite{Switch(i0, Switch(LT((i1 + i2), i3), i3, (i1 + i2)), Switch(LT(i1, i2), i1, i2))}}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{0}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Constant{-1}, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{1}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{Composite{(Switch(LT(maximum(i0, i1), i2), (maximum(i0, i1) + i3), (maximum(i0, i1) - i3)) + i4)}}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{add,no_inplace}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{Composite{(Switch(LT(maximum(i0, i1), i2), (maximum(i0, i1) + i3), (maximum(i0, i1) - i3)) + i4)}}[(0, 0)].0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{switch,no_inplace}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - ScalarFromTensor.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - TensorConstant{3}, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Constant{1}, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{Composite{((i0 - Switch(LT(i1, (i0 + i1)), i2, (i0 + i1))) + i1)}}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{Mul}[(0, 0)].0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - TensorConstant{1}, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - ScalarFromTensor.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{1}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - InplaceDimShuffle{x,x}.0, Shape: (1, 1), ElemSize: 8 Byte(s), TotalSize: 8 Byte(s)
+ - Elemwise{minimum,no_inplace}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - TensorConstant{4}, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{maximum,no_inplace}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - TensorConstant{2}, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{1}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{Composite{Switch(i0, i1, minimum(i2, i3))}}[(0, 2)].0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{1}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - TensorConstant{0}, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{1}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{0}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{Composite{((i0 - Switch(LT(i1, i2), i1, i2)) + i1)}}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{2}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - ScalarFromTensor.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{0}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{0}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Constant{0}, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Shape_i{1}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - ScalarFromTensor.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - Elemwise{switch,no_inplace}.0, Shape: (), ElemSize: 8 Byte(s), TotalSize: 8.0 Byte(s)
+ - TensorConstant{(1,) of 1e-08}, Shape: (1,), ElemSize: 4 Byte(s), TotalSize: 4 Byte(s)
+ - Elemwise{Cast{float32}}.0, Shape: (1, 1), ElemSize: 4 Byte(s), TotalSize: 4 Byte(s)
+ - TensorConstant{0.0}, Shape: (), ElemSize: 4 Byte(s), TotalSize: 4.0 Byte(s)
+ - TensorConstant{(1, 1) of 1.0}, Shape: (1, 1), ElemSize: 4 Byte(s), TotalSize: 4 Byte(s)
+ - alpha_c, Shared Input, Shape: (), ElemSize: 4 Byte(s), TotalSize: 4.0 Byte(s)
+ - InplaceDimShuffle{x,x}.0, Shape: (1, 1), ElemSize: 4 Byte(s), TotalSize: 4 Byte(s)
+ - decoder_b_sel, Shared Input, Shape: (), ElemSize: 4 Byte(s), TotalSize: 4.0 Byte(s)
+ - TensorConstant{(1, 1, 1) of 0.0}, Shape: (1, 1, 1), ElemSize: 4 Byte(s), TotalSize: 4 Byte(s)
+ - TensorConstant{(1, 1, 1) of 1.0}, Shape: (1, 1, 1), ElemSize: 4 Byte(s), TotalSize: 4 Byte(s)
+ - TensorConstant{(1, 1, 1) of 0.5}, Shape: (1, 1, 1), ElemSize: 4 Byte(s), TotalSize: 4 Byte(s)
+ - TensorConstant{(1, 1, 1) of 2.0}, Shape: (1, 1, 1), ElemSize: 4 Byte(s), TotalSize: 4 Byte(s)
+ - TensorConstant{(1, 1) of 0.5}, Shape: (1, 1), ElemSize: 4 Byte(s), TotalSize: 4 Byte(s)
+ - Elemwise{le,no_inplace}.0, Shape: (), ElemSize: 1 Byte(s), TotalSize: 1.0 Byte(s)
+ - InplaceDimShuffle{x,x,x}.0, Shape: (1, 1, 1), ElemSize: 1 Byte(s), TotalSize: 1 Byte(s)
+ - InplaceDimShuffle{x,x}.0, Shape: (1, 1), ElemSize: 1 Byte(s), TotalSize: 1 Byte(s)
+ - TensorConstant{1}, Shape: (), ElemSize: 1 Byte(s), TotalSize: 1.0 Byte(s)
+ - Elemwise{le,no_inplace}.0, Shape: (), ElemSize: 1 Byte(s), TotalSize: 1.0 Byte(s)
+ - TensorConstant{(1,) of -1}, Shape: (1,), ElemSize: 1 Byte(s), TotalSize: 1 Byte(s)
+ - keras_learning_phase, Input, Shape: (), ElemSize: 1 Byte(s), TotalSize: 1.0 Byte(s)
+ - Elemwise{lt,no_inplace}.0, Shape: (), ElemSize: 1 Byte(s), TotalSize: 1.0 Byte(s)
+ - Constant{1}, Shape: (), ElemSize: 1 Byte(s), TotalSize: 1.0 Byte(s)
+ - TensorConstant{2}, Shape: (), ElemSize: 1 Byte(s), TotalSize: 1.0 Byte(s)
+ - TensorConstant{0}, Shape: (), ElemSize: 1 Byte(s), TotalSize: 1.0 Byte(s)
+ TotalSize: 53597849.0 Byte(s) 0.050 GB
+ TotalSize inputs: 52998766.0 Byte(s) 0.049 GB
+
+
+
