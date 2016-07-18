@@ -27,6 +27,9 @@ class Optimizer(object):
             when their L2 norm exceeds this value.
         clipvalue: float >= 0. Gradients will be clipped
             when their absolute value exceeds this value.
+        noise: True or False, Gradients will be added gaussian noise with 
+               decaying std. 
+               Adding Gradient Noise Improves Learning for Very Deep Networks.(https://arxiv.org/abs/1511.06807)
     '''
     def __init__(self, **kwargs):
         allowed_kwargs = {'clipnorm', 'clipvalue', 'eta','gamma','noise'}
@@ -63,10 +66,10 @@ class Optimizer(object):
             grads = [clip_norm(g, self.clipnorm, norm) for g in grads]
         if hasattr(self, 'clipvalue') and self.clipvalue > 0:
             grads = [K.clip(g, -self.clipvalue, self.clipvalue) for g in grads]    
-        if hasattr(self,'noise') and self.noise:
-            self.noise_iterations =  K.variable(0.)
-            self.updates.append((self.noise_iterations, self.noise_iterations + 1.))
-            sigma_sqr = self.eta / (1. + self.noise_iterations)**self.gamma   
+        if hasattr(self,'noise') and self.noise is True:
+            noise_iterations =  K.variable(0.)
+            self.updates.append((noise_iterations, noise_iterations + 1.))
+            sigma_sqr = self.eta / (1. + noise_iterations)**self.gamma   
             grads = [g + K.normal(K.shape(g), std=sigma_sqr) for g in grads]        
         return grads
 
