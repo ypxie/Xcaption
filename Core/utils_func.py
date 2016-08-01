@@ -199,7 +199,7 @@ def init_ModuleInfo(options, name):
     thisModule.constraints = []
     options[name] = thisModule
     return options
-    
+
 def update_father_module(options,belonging_Module, module_identifier):
     '''
     we need to update the father module which contains this layer based on the information
@@ -207,7 +207,7 @@ def update_father_module(options,belonging_Module, module_identifier):
     '''
     if not belonging_Module:
         # means we need to update the father module info mation here
-        if not hasattr(options, belonging_Module):
+        if not belonging_Module in options:
             raise Warning('father module: {m} not initialized before calling: {f}'.
                          format(m=belonging_Module,f=module_identifier))
             init_ModuleInfo(options, belonging_Module)

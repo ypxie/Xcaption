@@ -11,7 +11,7 @@ from Core.recurrent import *
 def get_conv_feature(tparams, options, inputs, params = None, weight_decay = 1e-7,prefix = 'conv_feat',
                       img_channels=3,dropoutrate = 0.5, trainable = True, belonging_Module=None, **kwargs):
     if not belonging_Module:
-        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+        belonging_Module = options['belonging_Module'] if 'belonging_Module' in options else None
 
     module_identifier = 'module_' + prefix
     init_moduleInfo(options, name = module_identifier)
@@ -145,7 +145,7 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
     """
 
     if not belonging_Module:
-        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+        belonging_Module = options['belonging_Module'] if belonging_Module in options else None
     
 
     module_identifier = 'module_' + prefix

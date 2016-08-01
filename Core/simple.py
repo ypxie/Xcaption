@@ -115,10 +115,10 @@ def Embedding(tparams, options, x,  params = None, prefix='embeding',input_dim=N
     module_identifier = 'layer_' + prefix
     init_LayerInfo(options, name = module_identifier)
     if not belonging_Module:
-        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+        belonging_Module = options['belonging_Module'] if 'belonging_Module' in options else None
     else:
         belonging_Module = belonging_Module
-           
+
     input_shape = x._keras_shape
     tmp_param = OrderedDict()
     tmp_param = init_embeding(options, tmp_param, prefix=prefix,input_dim=input_dim,
@@ -159,7 +159,7 @@ def Dense(tparams, x,  options, params = None, prefix='ff', nin=None, nout=None,
     module_identifier = 'layer_' + prefix
     init_LayerInfo(options, name = module_identifier)
     if not belonging_Module:
-        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+        belonging_Module = options['belonging_Module'] if 'belonging_Module' in options else None
     else:
         belonging_Module = belonging_Module
         

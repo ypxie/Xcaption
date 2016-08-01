@@ -96,7 +96,7 @@ def Convolution2D(tparams, x, options, nb_filter, nb_row, nb_col, params = None,
     module_identifier = 'layer_' + prefix
     init_LayerInfo(options, name = module_identifier)
     if not belonging_Module:
-        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+        belonging_Module = options['belonging_Module'] if belonging_Module in options else None
     else:
         belonging_Module = belonging_Module
 

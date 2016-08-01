@@ -147,10 +147,10 @@ def LSTM(tparams, x, options, params = None, prefix='lstm', nin=None, dim=None,
     module_identifier = 'layer_' + prefix
     init_LayerInfo(options, name = module_identifier)
     if not belonging_Module:
-        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+        belonging_Module = options['belonging_Module'] if 'belonging_Module' in options else None
     else:
         belonging_Module = belonging_Module
-        
+
     input_shape = x._keras_shape
     tmp_params = OrderedDict()
     tmp_params = init_lstm(prefix=prefix, nin=nin, dim=dim,init=init, inner_init=inner_init,
@@ -575,7 +575,7 @@ def cond_LSTM(tparams, x, options, params = None,prefix='lstm_cond', nin=None,
     module_identifier = 'layer_' + prefix
     init_LayerInfo(options, name = module_identifier)
     if not belonging_Module:
-        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+        belonging_Module = options['belonging_Module'] if 'belonging_Module' in options else None
     else:
         belonging_Module = belonging_Module
     input_shape = x._keras_shape
