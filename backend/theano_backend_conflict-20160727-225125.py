@@ -14,6 +14,18 @@ def assign_subtensor(dest, source, dest_slice):
     dest = T.set_subtensor(dest[dest_slice], source)    
     return dest    
     
+def function(inputlist,func=None,**kwargs):
+    if not isinstance(inputlist,list):
+        inputlist = list(inputlist)
+    if func == None:
+       raise Exception('func can not be none')
+    outputlist = func(*inputlist)
+    if not isinstance(outputlist,list):
+        outputlist = list(outputlist)
+
+    ff = theano.function(inputlist, outputlist, **kwargs)
+    return ff
+
 def isnan(x):
     return x==None
 

@@ -259,7 +259,7 @@ def train(dim_word=100,  # word vector dimensionality
     # f_cost = theano.function([x, mask, ctx], cost, profile=False)
     # f_grad = theano.function([x, mask, ctx], grads, profile=False)
 
-    opt = eval(optimizer)(lr=lrate)
+    opt = eval(optimizer)(lr=lrate,clipvalue = 20)
     training_updates = opt.get_updates(itemlist(trainable_param),grads)
     updates = hard_attn_updates + training_updates
     f_train = T.function(inps,cost, updates=updates,on_unused_input='warn')

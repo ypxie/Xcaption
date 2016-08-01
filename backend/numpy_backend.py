@@ -120,7 +120,7 @@ def RandomStreams(seed = 1234):
 def normal(shape=None, mean=0.0, std=1.0, dtype=_FLOATX, seed=None,rng = None):
     if rng is None:
         seed = np.random.randint(1, 10e6)
-        rng = np.random.seed(seed=seed)
+        rng = rRandomStreams(seed=seed)
     if shape is None:
         shape = (1)
     return rng.normal(avg=mean, std=std, size=shape).astype(dtype)

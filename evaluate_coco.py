@@ -7,7 +7,7 @@ import os
 import sys
 #os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_compile,optimizer=None,force_device=True, exception_verbosity=high,allow_gc=False'
 os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_run,force_device=True, allow_gc=False'
-os.environ['debug_mode'] =  'True'
+os.environ['debug_mode'] =  'False'
 
 CopyRoot  = os.path.join('..','..','..')
 projroot = os.path.join('..')
@@ -84,8 +84,8 @@ if __name__ == "__main__":
     saveto = os.path.join(modelfolder, "my_caption_model.npz")
     
     defaults = {"saveto": saveto,
-                #"attn_type": "dynamic" ,#"dynamic",
-                "attn_type": "deterministic" ,#"dynamic",
+                "attn_type": "dynamic" ,#"dynamic",
+                #"attn_type": "deterministic" ,#"dynamic",
                 "addressing": "ntm",
                 "dim_word": 511,
                 "ctx_dim": 512,
@@ -94,7 +94,7 @@ if __name__ == "__main__":
                 "shift_range":3,
                 "n_layers_att": 2,
                 "n_layers_out": 1,
-                "n_layers_lstm": 2,
+                "n_layers_lstm": 1,
                 "n_layers_init": 2,
                 "n_words": 10000,
                 "lstm_encoder": False,

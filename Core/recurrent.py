@@ -5,15 +5,11 @@ from  backend.export import npwrapper
 from  Core.utils_func  import *
 
 from utils import activations, initializations, regularizers
-
+#-------------------------LSTM Layer------------------------------
 # This function implements the lstm fprop
-# LSTM layer
 def init_lstm(options, params, prefix='lstm', nin=None, dim=None,
               init='norm_weight', inner_init='othogo_weight',
-              forget_bias_init='one', 
-              inner_activation='sigmoid',
-              weights=None, dim_ordering= 'th',
-              trainable = True, **kwargs):
+              forget_bias_init='one', trainable = True, **kwargs):
     init = initializations.get(init)
     inner_init = initializations.get(inner_init)
     forget_bias_init = initializations.get(forget_bias_init)
@@ -139,8 +135,35 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
     
     return rval
 
-# Conditional LSTM layer with Attention
+def LSTM(tparams, x, options, params = None, prefix='lstm', nin=None, dim=None,
+              init='norm_weight', inner_init='othogo_weight',forget_bias_init='one', 
+              inner_activation='sigmoid', trainable = True,
+              mask=None,init_memory=None, init_state=None, activation='tanh',
+              nner_activation='hard_sigmoid', belonging_Module=None,**kwargs):
+    '''
+    params > tparams > empty
+    if params covers all the weights_keys. use params to update tparams.
+    '''
+    module_identifier = 'layer_' + prefix
+    init_LayerInfo(options, name = module_identifier)
+    if not belonging_Module:
+        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+    else:
+        belonging_Module = belonging_Module
+        
+    input_shape = x._keras_shape
+    tmp_params = OrderedDict()
+    tmp_params = init_lstm(prefix=prefix, nin=nin, dim=dim,init=init, inner_init=inner_init,
+                          forget_bias_init=forget_bias_init,trainable = trainable, **kwargs)
+    update_or_init_params(tparams, params, tmp_params=tmp_params)
+    
+    output = lstm_layer( tparams, x, options, prefix= prefix, mask=mask,init_memory=init_memory,
+                         init_state=init_state, activation=activation,inner_activation=inner_activation,
+                         **kwargs)
+    update_father_module(options,belonging_Module, module_identifier)
+    return output
 
+# Conditional LSTM layer with Attention
 def init_dynamic_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=None, 
                            init='norm_weight', inner_init='ortho_weight',forget_bias_init='one',
                            ctx_dim=None, proj_ctx_dim=None, trainable=True, **kwargs):
@@ -235,7 +258,7 @@ def init_dynamic_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=No
 
 def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=None,
                             context=None, one_step=False,init_memory=None, init_state=None, 
-                            rng=None, sampling=True,init_alpha = None, argmax=False,
+                            init_alpha = None,rng=None, sampling=True, argmax=False,
                             activation='tanh', inner_activation='sigmoid',**kwargs):
     '''
     Parameters
@@ -431,8 +454,7 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
         else:
             # attention computation
             # [described in  equations (4), (5), (6) in
-            # section "3.1.2 Decoder: Long Short Term Memory Network]
-            
+            # section "3.1.2 Decoder: Long Short Term Memory Network]           
             alpha = T.dot(pctx_, tparams[get_name(prefix,'U_att')])+tparams[get_name(prefix, 'c_tt')]
             alpha_pre = alpha
             alpha_shp = alpha.shape
@@ -481,7 +503,8 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
 
         h = o * T.tanh(c)
         h = m_[:,None] * h + (1. - m_)[:,None] * h_
-
+        
+        
         rval = [h, c, alpha, alpha_sample, ctx_]
 
         if options['selector']:
@@ -538,3 +561,39 @@ def dynamic_lstm_cond_layer(tparams, state_below, options, prefix='dlstm', mask=
                                 name=get_name(prefix, '_layers'),
                                 n_steps=nsteps, profile=False)           
         return rval, updates
+def cond_LSTM(tparams, x, options, params = None,prefix='lstm_cond', nin=None, 
+              dim=None, init='norm_weight', inner_init='ortho_weight',
+              forget_bias_init='one',ctx_dim=None, proj_ctx_dim=None, 
+              trainable=True,  mask=None, context=None, one_step=False,
+              init_memory=None, init_state=None, rng=None, sampling=True,
+              init_alpha = None,argmax=False,activation='tanh', 
+              inner_activation='sigmoid',belonging_Module=None,**kwargs):
+    '''
+    params > tparams > empty
+    if params covers all the weights_keys. use params to update tparams.
+    '''
+    module_identifier = 'layer_' + prefix
+    init_LayerInfo(options, name = module_identifier)
+    if not belonging_Module:
+        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+    else:
+        belonging_Module = belonging_Module
+    input_shape = x._keras_shape
+    tmp_params = OrderedDict()
+    tmp_params = init_lstm(prefix= prefix, nin=nin, dim=dim, init=init, 
+                           inner_init=inner_init,forget_bias_init=forget_bias_init,
+                           ctx_dim=ctx_dim, proj_ctx_dim=proj_ctx_dim,  
+                           trainable=trainable,  **kwargs)
+    update_or_init_params(tparams, params, tmp_params=tmp_params)
+    
+    options[module_identifier].weights_name.extend(tmp_params.keys())
+    options[module_identifier].trainable_weights.extend([tparams[k] for k in tmp_params.keys()])
+        
+    output = lstm_layer(tparams, x, options, prefix= prefix, mask=mask,
+                        context=context, one_step=one_step,init_memory=init_memory, 
+                        init_state=init_state, rng=rng, sampling=sampling,
+                        init_alpha = init_alpha, argmax=argmax,
+                        activation=activation, inner_activation=inner_activation,**kwargs)
+    
+    update_father_module(options,belonging_Module, module_identifier)
+    return output

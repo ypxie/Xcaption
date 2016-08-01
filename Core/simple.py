@@ -26,8 +26,7 @@ def dropout_layer(state_before, rng =None,dropoutrate=0.5):
     # return proj
 
     
-
-#embeding layer
+# ----------------------embeding layer----------------------    
 def init_embeding(options, params, prefix='embeding',input_dim=None,
                   output_dim=None, init='norm_weight',trainable=True):
     '''
@@ -88,8 +87,7 @@ def embeding_layer(tparams, x, options, prefix='embeding',dropoutrate=None,
     # for the first word (which is coded with -1), emb should be all zero
     #emb = tensor.switch(x[:,None] < 0, tensor.alloc(0., 1, tparams['Wemb'].shape[1]),
     #                    tparams['Wemb'][x])
-                        
-                        
+                     
     if specifier is not None:
         filled_shape = [1 for _ in range(T.ndim(x))] + [W.shape[-1]]
         if T.ndim(x) == 1:
@@ -104,8 +102,36 @@ def embeding_layer(tparams, x, options, prefix='embeding',dropoutrate=None,
                             W[x])
     else:
         emb = W[x]
+    emb._keras_shape = tuple(x._keras_shape) + (output_dim,)
     return emb
+
+def Embedding(tparams, options, x,  params = None, prefix='embeding',input_dim=None,
+              output_dim=None, init='norm_weight',trainable=True, dropoutrate=None,
+              specifier=None,filled_value=0., belonging_Module=None,**kwargs):
+    '''
+    params > tparams > empty
+    if params covers all the weights_keys. use params to update tparams.
+    '''
+    module_identifier = 'layer_' + prefix
+    init_LayerInfo(options, name = module_identifier)
+    if not belonging_Module:
+        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+    else:
+        belonging_Module = belonging_Module
+           
+    input_shape = x._keras_shape
+    tmp_param = OrderedDict()
+    tmp_param = init_embeding(options, tmp_param, prefix=prefix,input_dim=input_dim,
+                              output_dim=output_dim, init=init,trainable=trainable)
+    update_or_init_params(tparams, params, tmp_params=tmp_params)
     
+    output = embeding_layer(tparams,options, x, dropoutrate=dropoutrate,
+                            specifier=specifier,filled_value=filled_value,**kwargs)
+
+    update_father_module(options,belonging_Module, module_identifier)
+    return output
+
+# ----------------------fully connected layer----------------------    
 # feedforward layer: affine transformation + point-wise nonlinearity
 def init_fflayer(options, params, prefix='ff', nin=None, 
                  nout=None,init='norm_weight',trainable=True,**kwargs):
@@ -120,7 +146,30 @@ def init_fflayer(options, params, prefix='ff', nin=None,
 
     return params
 
-def fflayer(tparams, state_below, options, prefix='ff', activation='tanh', **kwargs):
+def fflayer(tparams, x, options, prefix='ff', activation='tanh', **kwargs):
     activation_func = activations.get(activation) 
-    return activation_func(T.dot(state_below, tparams[get_name(prefix,'W')])+tparams[get_name(prefix,'b')])
+    return activation_func(T.dot(x, tparams[get_name(prefix,'W')])+tparams[get_name(prefix,'b')])
 
+def Dense(tparams, x,  options, params = None, prefix='ff', nin=None, nout=None,
+          init='norm_weight',trainable=True, activation='tanh',belonging_Module=None,**kwargs):
+    '''
+    params > tparams > empty
+    if params covers all the weights_keys. use params to update tparams.
+    '''
+    module_identifier = 'layer_' + prefix
+    init_LayerInfo(options, name = module_identifier)
+    if not belonging_Module:
+        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+    else:
+        belonging_Module = belonging_Module
+        
+    tmp_param = OrderedDict()
+    tmp_param = init_fflayer(options, tmp_param, prefix=prefix, nin=nin, 
+                             nout=nout,init=init,trainable=trainable)
+    update_or_init_params(tparams, params, tmp_params=tmp_params)
+    
+    output = fflayer(tparams, x,options, prefix=prefix, activation= activation, **kwargs)
+
+    update_father_module(options,belonging_Module, module_identifier)
+
+    return output

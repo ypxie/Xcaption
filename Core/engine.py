@@ -8,6 +8,322 @@ from Core.simple import *
 from Core.utils_func import *
 from Core.recurrent import *
 
+def get_conv_feature(tparams, options, inputs, params = None, weight_decay = 1e-7,prefix = 'conv_feat',
+                      img_channels=3,dropoutrate = 0.5, trainable = True, belonging_Module=None, **kwargs):
+    if not belonging_Module:
+        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+
+    module_identifier = 'module_' + prefix
+    init_moduleInfo(options, name = module_identifier)
+    options['belonging_Module'] = module_identifier 
+    
+
+    params = OrderedDict() if not params else params
+    img_channels = options['img_channels'] if not options['img_channels'] else img_channels
+    weight_decay = options['cnn_weightdecay'] if not options['cnn_weightdecay'] else weight_decay
+    activ = 'relu' 
+    main_input.name = 'input'
+    if hasattr(main_input, '_keras_shape'):
+       main_input._keras_shape[0] = img_channels
+    W_regularizer = l2(weight_decay)
+    b_regularizer=l2(weight_decay)
+
+    conv_1 = Convolution2D(tparams, main_input, options, 32,3,3, params = params, belonging_Module=module_identifier,
+                           prefix='conv_1',init='orthogonal', border_mode='same', activation=activ, 
+                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable) 
+    max_1 = MaxPooling2D(conv_1, pool_size=(2,2))
+    
+    conv_2 = Convolution2D(tparams, max_1, options, 64,3,3,  params = params,belonging_Module=module_identifier,
+                           prefix='conv_2',init='orthogonal', border_mode='same', activation=activ, 
+                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)
+    max_2 = MaxPooling2D(conv_2, pool_size=(2,2))
+    
+    dp_0 =  dropout_layer(max_2, dropoutrate = 0.25)
+    
+    conv_3 = Convolution2D(tparams, dp_0, options, 128,3,3,  params = params,belonging_Module=module_identifier,
+                           prefix='conv_3',init='orthogonal', border_mode='same', activation=activ, 
+                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 25
+    max_3 = MaxPooling2D(conv_3,pool_size = (2,2))                                                     # 12
+    
+    conv_4 = Convolution2D(tparams, max_3, options, 256,3,3,  params = params,belonging_Module=module_identifier,
+                           prefix='conv_4',init='orthogonal', border_mode='same', activation=activ, 
+                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 12
+    max_4 = MaxPooling2D(conv_4,pool_size = (2,2))            # 6
+    
+    dp_1 =  dropout_layer(max_4, dropoutrate = 0.25)
+    
+    conv_5 = Convolution2D(tparams, dp_1, options, 512,3,3,  params = params,belonging_Module=module_identifier,
+                           prefix='conv_5',init='orthogonal', border_mode='same', activation=activ, 
+                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 6
+    upsamp_0 = UpSampling2D(conv_5, size=(2,2))
+    resize_0 = Resize2D(upsamp_0,  K.shape(conv_4))
+    deconv_0 = Convolution2D(tparams, resize_0, options, 256,3,3,  params = params,belonging_Module=module_identifier,
+                           prefix='deconv_0',init='orthogonal', border_mode='same', activation=activ, 
+                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 12
+    
+    dp_2 =  dropout_layer(deconv_0, dropoutrate = 0.25)
+
+    upsamp_1 = UpSampling2D(dp_2, size=(2,2))
+    resize_1 = Resize2D(upsamp_1,  K.shape(conv_3)) 
+    deconv_1 = Convolution2D(tparams, resize_1, options, 128,3,3,  params = params,belonging_Module=module_identifier,
+                           prefix='deconv_1',init='orthogonal', border_mode='same', activation=activ, 
+                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 25
+
+    upsamp_2 = UpSampling2D(deconv_1, size=(2,2))
+    resize_2 = Resize2D(upsamp_2,  K.shape(conv_2)) 
+    deconv_2 = Convolution2D(tparams, resize_2, options, 64,3,3,  params = params,belonging_Module=module_identifier,
+                           prefix='deconv_2',init='orthogonal', border_mode='same', activation=activ, 
+                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 50
+
+    dp_3 =  dropout_layer(deconv_2, dropoutrate = 0.25)
+    
+    upsamp_3 = UpSampling2D(dp_3, size=(2,2))
+    resize_3 = Resize2D(upsamp_3,  K.shape(conv_1)) 
+    deconv_3 = Convolution2D(tparams, resize_3, options, 32,3,3,  params = params,belonging_Module=module_identifier,
+                           prefix='deconv_3',init='orthogonal', border_mode='same', activation=activ, 
+                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 100
+    
+    last_conv = Convolution2D(tparams, deconv_3, options, 1,3,3,  params = params,belonging_Module=module_identifier,
+                           prefix='output_mask',init='orthogonal', border_mode='same', activation=activ, 
+                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 100
+
+    feat_rate_1 = deconv_3
+    feat_rate_2 = deconv_2
+    feat_rate_4 = deconv_1
+    feat_rate_8 = deconv_0 
+
+    update_father_module(options,belonging_Module, module_identifier)
+
+    options['belonging_Module'] = None 
+
+    return [feat_rate_1,feat_rate_2,feat_rate_4,feat_rate_8]
+        
+
+def build_model_single(tparams, options, x, mask, featSource, params = None, prefix = 'atten_model',
+                       sampling=True, dropoutrate = 0.5, belonging_Module = None):
+    """ Builds the entire computational graph used for training
+    
+    if tparams, params are both empty OrderedDict, start from fresh.
+    if params is given,  start from params
+    else:
+        start from tparam
+    
+    [This function builds a model described in Section 3.1.2 onwards
+    as the convolutional feature are precomputed, some extra features
+    which were not used are also implemented here.]
+
+    Parameters
+    ----------
+    tparams : OrderedDict
+        maps names of variables to theano shared variables
+    options : dict
+        big dictionary with all the settings and hyperparameters
+    sampling : boolean
+        [If it is true, when using stochastic attention, follows
+        the learning rule described in section 4. at the bottom left of
+        page 5]
+    Returns
+    -------
+    trng: theano random number generator
+        Used for dropout, stochastic attention, etc
+    [x, mask, ctx]: theano variables
+        x : words x #samples,
+        mask: words * samples
+        ctx: samples * annotation *dim
+        
+        Represent the captions, binary mask, and annotations
+        for a single batch (see dimensions below)
+    alphas: theano variables
+        Attention weights
+    alpha_sample: theano variable
+        Sampled attention weights used in REINFORCE for stochastic
+        attention: [see the learning rule in eq (12)]
+    cost: theano variable
+        negative log likelihood
+    opt_outs: OrderedDict
+        extra outputs required depending on configuration in options
+    """
+
+    if not belonging_Module:
+        belonging_Module = options['belonging_Module'] if hasattr(options,'belonging_Module') else None
+    
+
+    module_identifier = 'module_' + prefix
+    init_moduleInfo(options, name = module_identifier)
+    options['belonging_Module'] = module_identifier # make sure you make it None after this function
+    
+    if options['online_feature'] == True:
+       # means we need to recompute the feature from ctx, which is actually row image.
+       feat_pool = get_conv_feature(tparams, options, featSource, params = params, 
+                                    img_channels=3,dropoutrate = 0.5, trainable = trainable)
+       feat_index = options['feat_index']
+       ctx = feat_pool[feat_index]
+
+    elif options['online_feat'] == False:
+       # means source is already comouted feature
+       ctx = featSource
+    options['regularizers'] = []
+    ctx_dim = options['ctx_dim']
+    proj_ctx_dim = options['proj_ctx_dim']
+    lstm_cond_ndim = options['dim_word'] # originally, it accepts input from text.
+
+    #from capgen import get_layer
+    #dynamic_lstm_cond_layer =  get_layer('lstm_cond')[1]
+    #fflayer = get_layer('ff')[1]
+    
+    rng = T.RandomStreams(1234)
+    use_noise = T.variable(np.float32(0.))
+
+    n_timesteps = x.shape[0]
+    n_samples = x.shape[1]    
+
+    # index into the word embedding matrix, shift it forward in time
+    #emb = embeding_layer(tparams, x, options, prefix='embeding',dropout=None)
+    emb = Embedding(tparams, options, x,  params = params, prefix='embeding',
+                    input_dim = options['n_words'], output_dim=options['dim_word'], 
+                    init='normal',trainable=trainable)
+    
+    emb_shifted = T.zeros_like(emb)
+    emb_shifted = T.assign_subtensor(emb_shifted, emb[:-1], slice(1,None,1))
+    emb = emb_shifted
+        
+    if options['lstm_encoder']:
+        # encoder
+        ctx_fwd = LSTM(tparams, ctx.dimshuffle(1,0,2), options, params = params, 
+                       prefix='encoder', nin=options['dim_word'], dim=options['dim'], 
+                       trainable = trainable,)[0].dimshuffle(1,0,2)
+
+        ctx_rev = LSTM(tparams, ctx.dimshuffle(1,0,2)[:,::-1,:], options, params = params, 
+                       prefix='encoder_rev', nin=options['dim_word'], dim=options['dim'], 
+                       trainable = trainable,)[0][:,::-1,:].dimshuffle(1,0,2)
+
+        ctx0 = T.concatenate((ctx_fwd, ctx_rev), axis=2)
+    else:
+        ctx0 = ctx
+
+    # initial state/cell [top right on page 4]
+    ctx_mean = ctx0.mean(1)
+    for lidx in xrange(1, options['n_layers_init']):
+        ctx_mean = Dense(tparams, ctx_mean, options, params = params, prefix='ff_init_%d'%lidx, 
+                         nin=ctx_dim, nout=ctx_dim, trainable = trainable, activation='relu')
+
+        if options['use_dropout']:
+            ctx_mean = dropout_layer(ctx_mean, rng = rng, dropoutrate = options['use_dropout'])
+    
+    init_state  = Dense(tparams, ctx_mean,  options, params = params, prefix='ff_state', 
+                         nin=ctx_dim, nout=options['dim'], trainable = trainable, activation='tanh')
+    init_memory = Dense(tparams, ctx_mean,  options, params = params, prefix='ff_memory', 
+                         nin=ctx_dim, nout=options['dim'], trainable = trainable, activation='tanh')
+
+    # lstm decoder
+    # [equation (1), (2), (3) in section 3.1.2]
+    attn_updates = []
+    proj, updates = cond_LSTM(tparams, emb, options, params = params,
+                                prefix='decoder', 
+                                nin=lstm_cond_ndim, 
+                                dim=options['dim'], 
+                                ctx_dim=ctx_dim, 
+                                proj_ctx_dim=proj_ctx_dim,
+                                trainable=trainable,  
+                                mask=mask, context=ctx0, 
+                                one_step=False,
+                                init_state=init_state,
+                                init_memory=init_memory,
+                                rng=rng, 
+                                sampling=sampling)
+
+    attn_updates.extend(updates.items())   
+    print updates
+    proj_h = proj[0]
+    # optional deep attention
+    if options['n_layers_lstm'] > 1:
+        for lidx in xrange(1, options['n_layers_lstm']):
+            init_state  = Dense(tparams, ctx_mean,  options, params = params, prefix='ff_state_%d'%lidx, 
+                         nin=ctx_dim, nout=options['dim'], trainable = trainable, activation='tanh')
+            init_memory = Dense(tparams, ctx_mean,  options, params = params, prefix='ff_memory_%d'%lidx, 
+                         nin=ctx_dim, nout=options['dim'], trainable = trainable, activation='tanh')
+            
+            proj, updates = cond_LSTM(tparams, proj_h, options, params = params,
+                                        prefix='decoder_%d'%lidx,
+                                        nin=lstm_cond_ndim, 
+                                        dim=options['dim'], 
+                                        ctx_dim=ctx_dim, 
+                                        proj_ctx_dim=proj_ctx_dim,
+                                        trainable=trainable,  
+                                        mask=mask, context=ctx0, 
+                                        one_step=False,
+                                        init_state=init_state,
+                                        init_memory=init_memory,
+                                        rng=rng, 
+                                        sampling=sampling)
+            attn_updates.extend(updates.items()) 
+            
+            proj_h = proj[0]
+
+    alphas = proj[2]
+    alpha_sample = proj[3]
+    ctxs = proj[4]
+
+    # [beta value explained in note 4.2.1 "doubly stochastic attention"]
+    if options['selector']:
+        sels = proj[5]
+
+    if options['use_dropout']:
+        proj_h = dropout_layer(proj_h, rng=rng, dropoutrate = options['use_dropout'])
+
+    # compute word probabilities
+    # [equation (7)]
+    logit = Dense(tparams, proj_h,  options, params = params, prefix='ff_logit_lstm', 
+                  nin=options['dim'], nout=options['dim_word'], trainable = trainable, 
+                  activation='linear')
+
+    if options['prev2out']:
+        logit += emb
+    if options['ctx2out']:
+        logit += Dense(tparams, ctxs,  options, params = params, prefix='ff_logit_ctx', 
+                  nin=ctx_dim,  nout=options['dim_word'], trainable = trainable, 
+                  activation='linear')
+
+    logit = T.tanh(logit)
+    if options['use_dropout']:
+        logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
+    if options['n_layers_out'] > 1:
+        for lidx in xrange(1, options['n_layers_out']):
+            logit = Dense(tparams, logit,  options, params = params, prefix='ff_logit_h%d'%lidx, 
+                          nin=options['dim_word'], nout=options['dim_word'], trainable = trainable, 
+                          activation='relu')
+
+            if options['use_dropout']:
+                logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
+
+    # compute softmax
+    logit = Dense(tparams, logit,  options, params = params, prefix='ff_logit', 
+                    nin=options['dim_word'],nout=options['n_words'], 
+                    trainable = trainable, activation='linear')
+    logit_shp = logit.shape
+    probs = T.softmax(logit.reshape([logit_shp[0]*logit_shp[1], logit_shp[2]]))
+
+    # Index into the computed probability to give the log likelihood
+    x_flat = x.flatten()
+    p_flat = probs.flatten()
+    cost = -T.log(p_flat[T.arange(x_flat.shape[0])*probs.shape[1]+x_flat]+1e-8)
+    cost = cost.reshape([x.shape[0], x.shape[1]])
+    masked_cost = cost * mask
+    cost = (masked_cost).sum(0)
+
+    # optional outputs
+    opt_outs = dict()
+    if options['selector']:
+        opt_outs['selector'] = sels
+    if options['attn_type'] == 'stochastic':
+        opt_outs['masked_cost'] = masked_cost # need this for reinforce later
+        opt_outs['attn_updates'] = attn_updates # this is to update the rng
+    
+    options['belonging_Module'] = None 
+    
+    return rng,use_noise,  [x, mask, ctx], alphas, alpha_sample, cost, opt_outs
+
+
 def init_params(options):
     #from capgen import get_layer
     #init_fflayer = get_layer('ff')[0]
@@ -61,8 +377,6 @@ def init_params(options):
                                 nout=options['n_words'], trainable = trainable)
 
     return params
-
-
 
 #from capgen import build_model
 # build a training model
@@ -179,7 +493,7 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
                                               init_memory=init_memory,
                                               rng=rng,
                                               sampling=sampling)
-    attn_updates += updates
+    attn_updates.extend(updates.items())   
     print updates
     proj_h = proj[0]
     # optional deep attention
@@ -195,8 +509,7 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
                                                       init_memory=init_memory,
                                                       rng=rng,
                                                       sampling=sampling)
-            print updates            
-            attn_updates += updates
+            attn_updates.extend(updates.items()) 
             
             proj_h = proj[0]
 
@@ -249,6 +562,152 @@ def build_model(tparams, options, sampling=True, dropoutrate = 0.5):
         opt_outs['attn_updates'] = attn_updates # this is to update the rng
 
     return rng,use_noise,  [x, mask, ctx], alphas, alpha_sample, cost, opt_outs
+
+# build a sampler
+def build_f_next(tparams, options, rng, ctx_2d=None,
+                 init_state=None,init_memory=None,init_alpha =None,
+                 sampling=True, dropoutrate = 0.5):
+    # build f_next    
+    emb = embeding_layer(tparams, x, options, prefix='embeding',dropout=None,
+                    specifier=-1,filled_value=0.)
+
+    proj = dynamic_lstm_cond_layer(tparams, emb, options,
+                                     prefix='decoder',
+                                     mask=None, context=ctx,
+                                     one_step=True,
+                                     init_state=init_state[0],
+                                     init_memory=init_memory[0],
+                                     init_alpha = init_alpha[0],
+                                     rng=rng,
+                                     sampling=sampling)
+
+    next_state, next_memory, ctxs, next_alpha = [proj[0]], [proj[1]], [proj[4]], [proj[2]]
+    proj_h = proj[0]
+    if options['n_layers_lstm'] > 1:
+        for lidx in xrange(1, options['n_layers_lstm']):
+            proj = dynamic_lstm_cond_layer(tparams, proj_h, options,
+                                             prefix='decoder_%d'%lidx,
+                                             context=ctx,
+                                             one_step=True,
+                                             init_state=init_state[lidx],
+                                             init_memory=init_memory[lidx],
+                                             init_alpha = init_alpha[lidx],
+                                             rng=rng,
+                                             sampling=sampling)
+            next_state.append(proj[0])
+            next_memory.append(proj[1])
+            ctxs.append(proj[4])
+            next_alpha.append(proj[2])
+            proj_h = proj[0]
+
+    if options['use_dropout']:
+        proj_h = dropout_layer(proj[0], rng=rng, dropoutrate = options['use_dropout'])
+    else:
+        proj_h = proj[0]
+    logit = fflayer(tparams, proj_h, options, prefix='ff_logit_lstm', activation='linear')
+    if options['prev2out']:
+        logit += emb
+    if options['ctx2out']:
+        logit += fflayer(tparams, ctxs[-1], options, prefix='ff_logit_ctx', activation='linear')
+    logit = T.tanh(logit)
+    if options['use_dropout']:
+        logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
+    if options['n_layers_out'] > 1:
+        for lidx in xrange(1, options['n_layers_out']):
+            logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activation='softplus')
+            if options['use_dropout']:
+                logit = dropout_layer(logit, rng=rng, dropoutrate = options['use_dropout'])
+    logit = fflayer(tparams, logit, options, prefix='ff_logit', activation='linear')
+    logit_shp = logit.shape
+    next_probs = T.softmax(logit)
+    next_sample = T.multinomial(p=next_probs).argmax(1)
+
+    # next word probability
+    print "Building f_next..."
+    f_next = T.function([x, ctx_2d,T.learning_phase()]+init_state+init_memory + init_alpha,
+                        [next_probs, next_sample]+next_state+next_memory + next_alpha, 
+                        name='f_next', profile=False,on_unused_input='warn')
+    print 'Done'
+    return f_next
+
+   
+def build_f_init(tparams, options, rng, ctx_2d=None,sampling=True,dropoutrate = 0.5):
+    """ Builds a sampler used for generating from the model
+    Parameters
+    ----------
+        See build_model function above, since we only run one step, so 
+        the dimension of RNN input will be one dimension less.
+    Returns
+    -------
+    f_init : theano function
+        Input: annotation, Output: initial lstm state and memory
+        (also performs transformation on ctx0 if using lstm_encoder)
+    f_next: theano function
+        Takes the previous word/state/memory + ctx0 and runs ne
+        step through the lstm (used for beam search)
+    ------
+    f_init
+    Parameters
+    ----------
+      ctx_2d: annotation * dimension
+    Returns
+      ctx0: the encoded context information, annotation * dim
+      init_state:  list of tensor of shape 1*hidden dimension
+      init_memory: list of tensor of shape 1*hidden
+      [ctx0[0]]+init_state+init_memory
+      
+    f_next
+    Parameters
+    ----------
+    ctx_2d: annotation * dimension     
+    x : vector contains indexs of word for one image
+        
+    """
+
+    ctx = T.expand_dims(ctx_2d, dim=0)  
+
+    if options['lstm_encoder']:
+        # encoder
+        ctx_fwd = lstm_layer(tparams, ctx.dimshuffle(1,0,2),
+                                       options, prefix='encoder')[0].dimshuffle(1,0,2)
+        ctx_rev = lstm_layer(tparams, ctx.dimshuffle(1,0,2)[:,::-1,:],
+                                       options, prefix='encoder_rev')[0][:,::-1,:].dimshuffle(1,0,2)
+        ctx0 = T.concatenate((ctx_fwd, ctx_rev), axis=2)
+    else:
+        ctx0 = ctx
+    # initial state/cell [top right on page 4]
+    ctx_mean = ctx0.mean(1)
+    for lidx in xrange(1, options['n_layers_init']):
+        ctx_mean = fflayer(tparams, ctx_mean, options,
+                                      prefix='ff_init_%d'%lidx, activation='softplus')
+        if options['use_dropout']:
+            ctx_mean = dropout_layer(ctx_mean, rng = rng, dropoutrate = options['use_dropout'])
+
+    init_state =  [fflayer(tparams, ctx_mean, options, prefix='ff_state', activation='tanh')]
+    init_memory = [fflayer(tparams, ctx_mean, options, prefix='ff_memory', activation='tanh')]
+    init_alpha =  [T.alloc(0., ctx.shape[0], ctx.shape[1])]
+    
+    init_state[-1].name =  'init_state'
+    init_memory[-1].name = 'init_memory'
+    init_alpha[-1].name = 'init_alpha'
+
+    if options['n_layers_lstm'] > 1:
+        for lidx in xrange(1, options['n_layers_lstm']):
+            init_state.append(fflayer(tparams, ctx_mean, options, prefix='ff_state_%d'%lidx, activation='tanh'))
+            init_memory.append( fflayer(tparams, ctx_mean, options, prefix='ff_memory_%d'%lidx, activation='tanh'))
+            init_alpha.append(T.alloc(0., ctx.shape[0], ctx.shape[1]))
+            
+            init_state[-1].name  =  'init_state'+ str(lidx)
+            init_memory[-1].name = 'init_memory'+ str(lidx)
+            init_alpha[-1].name  = 'init_alpha'+ str(lidx)
+
+
+    print 'Building f_init...',
+    f_init = T.function([ctx_2d,T.learning_phase()], [ctx0[0]]+init_state+init_memory + init_alpha
+                         , name='f_init', profile=False,on_unused_input='warn')
+    print 'Done'
+    
+    return f_init
 
 # build a sampler
 def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
