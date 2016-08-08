@@ -7,28 +7,33 @@ import os
 from Core.simple import *
 from Core.utils_func import *
 from Core.recurrent import *
+from Core.convolution import Convolution2D, MaxPooling2D
+
+from utils.regularizers import l2
 
 def get_conv_feature(tparams, options, inputs, params = None, weight_decay = 1e-7,prefix = 'conv_feat',
                       img_channels=3,dropoutrate = 0.5, trainable = True, belonging_Module=None, **kwargs):
     if not belonging_Module:
         belonging_Module = options['belonging_Module'] if 'belonging_Module' in options else None
 
-    module_identifier = 'module_' + prefix
-    init_moduleInfo(options, name = module_identifier)
+    module_identifier = get_module_identifier(prefix)
+    init_ModuleInfo(options, name = module_identifier)
     options['belonging_Module'] = module_identifier 
-    
 
     params = OrderedDict() if not params else params
-    img_channels = options['img_channels'] if not options['img_channels'] else img_channels
-    weight_decay = options['cnn_weightdecay'] if not options['cnn_weightdecay'] else weight_decay
+    
     activ = 'relu' 
-    main_input.name = 'input'
-    if hasattr(main_input, '_keras_shape'):
-       main_input._keras_shape[0] = img_channels
+    inputs.name = 'input'
+    if hasattr(inputs, '_keras_shape'):
+       if inputs._keras_shape[-3] != img_channels:
+           raise Exception('Wrong Inputs channel for conv_feat!')
+    else:
+        inputs._keras_shape = (None, img_channels, None, None)
+        
     W_regularizer = l2(weight_decay)
     b_regularizer=l2(weight_decay)
 
-    conv_1 = Convolution2D(tparams, main_input, options, 32,3,3, params = params, belonging_Module=module_identifier,
+    conv_1 = Convolution2D(tparams, inputs, options, 32,3,3, params = params, belonging_Module=module_identifier,
                            prefix='conv_1',init='orthogonal', border_mode='same', activation=activ, 
                            W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable) 
     max_1 = MaxPooling2D(conv_1, pool_size=(2,2))
@@ -55,52 +60,16 @@ def get_conv_feature(tparams, options, inputs, params = None, weight_decay = 1e-
     conv_5 = Convolution2D(tparams, dp_1, options, 512,3,3,  params = params,belonging_Module=module_identifier,
                            prefix='conv_5',init='orthogonal', border_mode='same', activation=activ, 
                            W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 6
-    upsamp_0 = UpSampling2D(conv_5, size=(2,2))
-    resize_0 = Resize2D(upsamp_0,  K.shape(conv_4))
-    deconv_0 = Convolution2D(tparams, resize_0, options, 256,3,3,  params = params,belonging_Module=module_identifier,
-                           prefix='deconv_0',init='orthogonal', border_mode='same', activation=activ, 
-                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 12
     
-    dp_2 =  dropout_layer(deconv_0, dropoutrate = 0.25)
-
-    upsamp_1 = UpSampling2D(dp_2, size=(2,2))
-    resize_1 = Resize2D(upsamp_1,  K.shape(conv_3)) 
-    deconv_1 = Convolution2D(tparams, resize_1, options, 128,3,3,  params = params,belonging_Module=module_identifier,
-                           prefix='deconv_1',init='orthogonal', border_mode='same', activation=activ, 
-                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 25
-
-    upsamp_2 = UpSampling2D(deconv_1, size=(2,2))
-    resize_2 = Resize2D(upsamp_2,  K.shape(conv_2)) 
-    deconv_2 = Convolution2D(tparams, resize_2, options, 64,3,3,  params = params,belonging_Module=module_identifier,
-                           prefix='deconv_2',init='orthogonal', border_mode='same', activation=activ, 
-                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 50
-
-    dp_3 =  dropout_layer(deconv_2, dropoutrate = 0.25)
-    
-    upsamp_3 = UpSampling2D(dp_3, size=(2,2))
-    resize_3 = Resize2D(upsamp_3,  K.shape(conv_1)) 
-    deconv_3 = Convolution2D(tparams, resize_3, options, 32,3,3,  params = params,belonging_Module=module_identifier,
-                           prefix='deconv_3',init='orthogonal', border_mode='same', activation=activ, 
-                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 100
-    
-    last_conv = Convolution2D(tparams, deconv_3, options, 1,3,3,  params = params,belonging_Module=module_identifier,
-                           prefix='output_mask',init='orthogonal', border_mode='same', activation=activ, 
-                           W_regularizer=W_regularizer, b_regularizer=b_regularizer, trainable=trainable)  # 100
-
-    feat_rate_1 = deconv_3
-    feat_rate_2 = deconv_2
-    feat_rate_4 = deconv_1
-    feat_rate_8 = deconv_0 
-
     update_father_module(options,belonging_Module, module_identifier)
 
     options['belonging_Module'] = None 
-
-    return [feat_rate_1,feat_rate_2,feat_rate_4,feat_rate_8]
+    print('Finished build conv_feat module')
+    return [conv_5, conv_4, conv_3]
         
 
 def build_model_single(tparams, options, x, mask, featSource, params = None, prefix = 'atten_model',
-                       sampling=True, dropoutrate = 0.5, belonging_Module = None):
+                       sampling=True, dropoutrate = 0.5, belonging_Module = None, trainable = True):
     """ Builds the entire computational graph used for training
     
     if tparams, params are both empty OrderedDict, start from fresh.
@@ -147,9 +116,11 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
     if not belonging_Module:
         belonging_Module = options['belonging_Module'] if belonging_Module in options else None
     
+    if not 'online_feature' in options:
+        options['online_feature'] = False
 
-    module_identifier = 'module_' + prefix
-    init_moduleInfo(options, name = module_identifier)
+    module_identifier = get_module_identifier(prefix)
+    init_ModuleInfo(options, name = module_identifier)
     options['belonging_Module'] = module_identifier # make sure you make it None after this function
     
     if options['online_feature'] == True:
@@ -159,7 +130,7 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
        feat_index = options['feat_index']
        ctx = feat_pool[feat_index]
 
-    elif options['online_feat'] == False:
+    elif options['online_feature'] == False:
        # means source is already comouted feature
        ctx = featSource
     options['regularizers'] = []
@@ -174,12 +145,12 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
     rng = T.RandomStreams(1234)
     use_noise = T.variable(np.float32(0.))
 
-    n_timesteps = x.shape[0]
-    n_samples = x.shape[1]    
+    #n_timesteps = x.shape[0]
+    #n_samples = x.shape[1]    
 
     # index into the word embedding matrix, shift it forward in time
     #emb = embeding_layer(tparams, x, options, prefix='embeding',dropout=None)
-    emb = Embedding(tparams, options, x,  params = params, prefix='embeding',
+    emb = Embedding(tparams, x, options, params = params, prefix='embeding',
                     input_dim = options['n_words'], output_dim=options['dim_word'], 
                     init='normal',trainable=trainable)
     
@@ -189,31 +160,33 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
         
     if options['lstm_encoder']:
         # encoder
-        ctx_fwd = LSTM(tparams, ctx.dimshuffle(1,0,2), options, params = params, 
-                       prefix='encoder', nin=options['dim_word'], dim=options['dim'], 
-                       trainable = trainable,)[0].dimshuffle(1,0,2)
+        ctx_fwd = LSTM(tparams, T.permute_dimensions(ctx, (1,0,2)), options, params = params, 
+                       prefix='encoder', nin=options['ctx_dim'], dim=options['ctx_dim'], 
+                       trainable = trainable,)[0]
+        ctx_fwd =  T.permute_dimensions(ctx_fwd,(1,0,2) )
 
-        ctx_rev = LSTM(tparams, ctx.dimshuffle(1,0,2)[:,::-1,:], options, params = params, 
-                       prefix='encoder_rev', nin=options['dim_word'], dim=options['dim'], 
-                       trainable = trainable,)[0][:,::-1,:].dimshuffle(1,0,2)
-
+        ctx_rev = LSTM(tparams, T.reverse(T.permute_dimensions(ctx, (1,0,2)), axis = 1), options, params = params, 
+                       prefix='encoder_rev', nin=options['ctx_dim'], dim=options['ctx_dim'], 
+                       trainable = trainable,)[0]
+        ctx_rev =  T.reverse(ctx_rev,  axis = 1 )
+        ctx_rev =  T.permute_dimensions(ctx_rev,(1,0,2) )
+        
         ctx0 = T.concatenate((ctx_fwd, ctx_rev), axis=2)
     else:
         ctx0 = ctx
-
     # initial state/cell [top right on page 4]
-    ctx_mean = ctx0.mean(1)
+    ctx_mean = T.mean(ctx0, axis=1) #ctx0.mean(1)
     for lidx in xrange(1, options['n_layers_init']):
         ctx_mean = Dense(tparams, ctx_mean, options, params = params, prefix='ff_init_%d'%lidx, 
-                         nin=ctx_dim, nout=ctx_dim, trainable = trainable, activation='relu')
+                         nout=ctx_dim, trainable = trainable, activation='relu')
 
         if options['use_dropout']:
             ctx_mean = dropout_layer(ctx_mean, rng = rng, dropoutrate = options['use_dropout'])
     
     init_state  = Dense(tparams, ctx_mean,  options, params = params, prefix='ff_state', 
-                         nin=ctx_dim, nout=options['dim'], trainable = trainable, activation='tanh')
+                        nout=options['dim'], trainable = trainable, activation='tanh')
     init_memory = Dense(tparams, ctx_mean,  options, params = params, prefix='ff_memory', 
-                         nin=ctx_dim, nout=options['dim'], trainable = trainable, activation='tanh')
+                        nout=options['dim'], trainable = trainable, activation='tanh')
 
     # lstm decoder
     # [equation (1), (2), (3) in section 3.1.2]
@@ -233,8 +206,7 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
                                 sampling=sampling)
 
     attn_updates.extend(updates.items())   
-    print updates
-    proj_h = proj[0]
+    proj_h = proj[0] 
     # optional deep attention
     if options['n_layers_lstm'] > 1:
         for lidx in xrange(1, options['n_layers_lstm']):
@@ -710,7 +682,7 @@ def build_f_init(tparams, options, rng, ctx_2d=None,sampling=True,dropoutrate = 
     return f_init
 
 # build a sampler
-def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
+def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5,allow_input_downcast=True):
     """ Builds a sampler used for generating from the model
     Parameters
     ----------
@@ -795,7 +767,7 @@ def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
             init_alpha.append(T.alloc(0., ctx.shape[0], ctx.shape[1]))
     print 'Building f_init...',
     f_init = T.function([ctx_2d,T.learning_phase()], [ctx0[0]]+init_state+init_memory + init_alpha
-                         , name='f_init', profile=False,on_unused_input='warn')
+                         , name='f_init', profile=False,on_unused_input='warn',allow_input_downcast=allow_input_downcast)
     print 'Done'
     
     # build f_next
@@ -882,7 +854,7 @@ def build_sampler(tparams, options, rng, sampling=True,dropoutrate = 0.5):
     print "Building f_next..."
     f_next = T.function([x, ctx_2d,T.learning_phase()]+init_state+init_memory + init_alpha,
                         [next_probs, next_sample]+next_state+next_memory + next_alpha, 
-                        name='f_next', profile=False,on_unused_input='warn')
+                        name='f_next', profile=False,on_unused_input='warn',allow_input_downcast=allow_input_downcast)
     print 'Done'
     return f_init, f_next
 

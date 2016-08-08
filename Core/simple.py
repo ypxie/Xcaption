@@ -18,6 +18,8 @@ def dropout_layer(state_before, rng =None,dropoutrate=0.5):
         retain_p = 1. - dropoutrate
         B = T.binomial(shape = state_before.shape, p=retain_p, n=1,dtype=state_before.dtype,rng = rng) * (1. / retain_p)
         proj = T.in_train_phase(state_before * B, state_before)
+    if hasattr(state_before,'_keras_shape'):
+        proj._keras_shape = state_before._keras_shape
     return proj
     # proj = T.switch(use_noise,
     #                      state_before *
@@ -65,7 +67,7 @@ def init_embeding(options, params, prefix='embeding',input_dim=None,
                                 
     return params
 def embeding_layer(tparams, x, options, prefix='embeding',dropoutrate=None,
-                    specifier=None,filled_value=0., **kwargs):
+                    specifier=None,filled_value=0., output_dim=None, **kwargs):
     '''
     Gather weights from W based on index of x. The output should be one dimension
     higher than x, eg, if W = (100,128), x=(10,10,10), output will be (10,10,10,128).
@@ -102,10 +104,12 @@ def embeding_layer(tparams, x, options, prefix='embeding',dropoutrate=None,
                             W[x])
     else:
         emb = W[x]
+    if output_dim is None:
+        output_dim = T.get_value(W).shape[-1]
     emb._keras_shape = tuple(x._keras_shape) + (output_dim,)
     return emb
 
-def Embedding(tparams, options, x,  params = None, prefix='embeding',input_dim=None,
+def Embedding(tparams,  x, options, params = None, prefix='embeding',input_dim=None,
               output_dim=None, init='norm_weight',trainable=True, dropoutrate=None,
               specifier=None,filled_value=0., belonging_Module=None,**kwargs):
     '''
@@ -120,14 +124,15 @@ def Embedding(tparams, options, x,  params = None, prefix='embeding',input_dim=N
         belonging_Module = belonging_Module
 
     input_shape = x._keras_shape
-    tmp_param = OrderedDict()
-    tmp_param = init_embeding(options, tmp_param, prefix=prefix,input_dim=input_dim,
+    tmp_params = OrderedDict()
+    tmp_params = init_embeding(options, tmp_params, prefix=prefix,input_dim=input_dim,
                               output_dim=output_dim, init=init,trainable=trainable)
     update_or_init_params(tparams, params, tmp_params=tmp_params)
     
-    output = embeding_layer(tparams,options, x, dropoutrate=dropoutrate,
+    output = embeding_layer(tparams, x,options, dropoutrate=dropoutrate,
                             specifier=specifier,filled_value=filled_value,**kwargs)
 
+    updateModuleInfo(options, tparams, prefix, module_identifier)
     update_father_module(options,belonging_Module, module_identifier)
     return output
 
@@ -148,7 +153,10 @@ def init_fflayer(options, params, prefix='ff', nin=None,
 
 def fflayer(tparams, x, options, prefix='ff', activation='tanh', **kwargs):
     activation_func = activations.get(activation) 
-    return activation_func(T.dot(x, tparams[get_name(prefix,'W')])+tparams[get_name(prefix,'b')])
+    output = activation_func(T.dot(x, tparams[get_name(prefix,'W')])+tparams[get_name(prefix,'b')])
+    if hasattr(x, '_keras_shape'):
+        output = T.add_keras_shape(output, x._keras_shape)
+    return output
 
 def Dense(tparams, x,  options, params = None, prefix='ff', nin=None, nout=None,
           init='norm_weight',trainable=True, activation='tanh',belonging_Module=None,**kwargs):
@@ -156,6 +164,12 @@ def Dense(tparams, x,  options, params = None, prefix='ff', nin=None, nout=None,
     params > tparams > empty
     if params covers all the weights_keys. use params to update tparams.
     '''
+    if nin is None:
+        if not hasattr(x, '_keras_shape'):
+            raise Exception('Dense layer must have either nin or the input with _keras_shape')
+        else:
+            nin = x._keras_shape[-1]
+    
     module_identifier = 'layer_' + prefix
     init_LayerInfo(options, name = module_identifier)
     if not belonging_Module:
@@ -163,13 +177,14 @@ def Dense(tparams, x,  options, params = None, prefix='ff', nin=None, nout=None,
     else:
         belonging_Module = belonging_Module
         
-    tmp_param = OrderedDict()
-    tmp_param = init_fflayer(options, tmp_param, prefix=prefix, nin=nin, 
+    tmp_params = OrderedDict()
+    tmp_params = init_fflayer(options, tmp_params, prefix=prefix, nin=nin, 
                              nout=nout,init=init,trainable=trainable)
     update_or_init_params(tparams, params, tmp_params=tmp_params)
     
     output = fflayer(tparams, x,options, prefix=prefix, activation= activation, **kwargs)
-
+    
+    updateModuleInfo(options, tparams, prefix, module_identifier)
     update_father_module(options,belonging_Module, module_identifier)
 
     return output

@@ -1,6 +1,6 @@
-import numpy
+import numpy as np
 import copy
-
+from Core.utils_func import split_words
 
 class HomogeneousData():
     def __init__(self, data, batch_size=128, maxlen=None):
@@ -14,11 +14,11 @@ class HomogeneousData():
 
     def prepare(self):
         self.caps = self.data[0]
-        self.feats = self.data[1]
+        #self.feats = self.data[1]
 
         # find the unique lengths
-        self.lengths = [len(cc[0].split()) for cc in self.caps]
-        self.len_unique = numpy.unique(self.lengths)
+        self.lengths = [len(split_words(cc[0])) for cc in self.caps]
+        self.len_unique = np.unique(self.lengths)
         # remove any overly long captions
         if self.maxlen:
             self.len_unique = [ll for ll in self.len_unique if ll <= self.maxlen]
@@ -27,7 +27,7 @@ class HomogeneousData():
         self.len_indices = dict()
         self.len_counts = dict()
         for ll in self.len_unique:
-            self.len_indices[ll] = numpy.where(self.lengths == ll)[0]
+            self.len_indices[ll] = np.where(self.lengths == ll)[0]
             self.len_counts[ll] = len(self.len_indices[ll])
 
         # current counter
@@ -35,18 +35,18 @@ class HomogeneousData():
 
     def reset(self):
         self.len_curr_counts = copy.copy(self.len_counts)
-        self.len_unique = numpy.random.permutation(self.len_unique)
+        self.len_unique = np.random.permutation(self.len_unique)
         self.len_indices_pos = dict()
         for ll in self.len_unique:
             self.len_indices_pos[ll] = 0
-            self.len_indices[ll] = numpy.random.permutation(self.len_indices[ll])
+            self.len_indices[ll] = np.random.permutation(self.len_indices[ll])
         self.len_idx = -1
 
     def next(self):
         # randomly choose the length
         count = 0
         while True:
-            self.len_idx = numpy.mod(self.len_idx+1, len(self.len_unique))
+            self.len_idx = np.mod(self.len_idx+1, len(self.len_unique))
             if self.len_curr_counts[self.len_unique[self.len_idx]] > 0:
                 break
             count += 1
@@ -57,7 +57,7 @@ class HomogeneousData():
             raise StopIteration()
 
         # get the batch size
-        curr_batch_size = numpy.minimum(self.batch_size, self.len_curr_counts[self.len_unique[self.len_idx]])
+        curr_batch_size = np.minimum(self.batch_size, self.len_curr_counts[self.len_unique[self.len_idx]])
         curr_pos = self.len_indices_pos[self.len_unique[self.len_idx]]
         # get the indices for the current batch
         curr_indices = self.len_indices[self.len_unique[self.len_idx]][curr_pos:curr_pos+curr_batch_size]

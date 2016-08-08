@@ -9,8 +9,8 @@ except ImportError:
     from theano.sandbox.softsign import softsign as T_softsign
 import inspect
 import numpy as np
-from .common import _FLOATX, _EPSILON
-
+from backend.keras_backend.common import _FLOATX, _EPSILON
+import warnings
 
 # INTERNAL UTILS
 theano.config.floatX = _FLOATX
@@ -25,7 +25,10 @@ def addAttribute(x, attr=None, value=None):
        setattr(x, attr, value)
     return x
 
-
+def add_keras_shape(x, keras_shape = None):
+    x._keras_shape = keras_shape
+    return x
+    
 def learning_phase():
     # False = test, True = train
     return _LEARNING_PHASE
@@ -84,31 +87,71 @@ def eval(x):
     '''
     return x.eval()
 
+def _none_or_int(shape):
+    o = True
+    for s in shape:
+        if not isinstance(s, int) and s is not None:
+            o = False
+            break
+    return o
 
 def zeros(shape, dtype=_FLOATX, name=None):
     '''Instantiate an all-zeros variable.
     '''
-    return variable(np.zeros(shape), dtype, name)
-
+    output = T.zeros(shape,  dtype=dtype)
+    output.name = name
+    if _none_or_int(shape):
+        output._keras_shape = shape
+    return output
+    
+def np_zeros(shape, dtype=_FLOATX, name=None):
+    output = variable(np.zeros(shape), dtype, name)
+    output._keras_shape = shape
+    return output    
 
 def ones(shape, dtype=_FLOATX, name=None):
     '''Instantiate an all-ones variable.
     '''
-    return variable(np.ones(shape), dtype, name)
+    output = T.ones(shape,  dtype=dtype)
+    output.name = name
+    if _none_or_int(shape):
+        output._keras_shape = shape
+    return output
+    
+def np_ones(shape, dtype=_FLOATX, name=None):
+    output = variable(np.ones(shape), dtype, name)
+    output._keras_shape = shape
+    return output
 
 
 def eye(size, dtype=_FLOATX, name=None):
     '''Instantiate an identity matrix.
     '''
-    return variable(np.eye(size), dtype, name)
+    shape = (size,size)
+    output = T.eye(size, dtype=dtype)
+    output.name = name
+    if _none_or_int(shape):
+        output._keras_shape = shape
+    return output
+ 
+def np_eye(size, dtype=_FLOATX, name=None):   
+    output = variable(np.eye(size), dtype, name)
+    output._keras_shape = (size, size)
+    return output
 
 
 def ones_like(x):
-    return T.ones_like(x)
+    output = T.ones_like(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def zeros_like(x):
-    return T.zeros_like(x)
+    output = T.zeros_like(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def count_params(x):
@@ -132,7 +175,21 @@ Assumed overridden:
 
 
 def dot(x, y):
-    return T.dot(x, y)
+    output = T.dot(x, y)
+    if hasattr(x, '_keras_shape'):
+        x_keras_shape = list(x._keras_shape)
+    if hasattr(y, '_keras_shape'):
+        y_keras_shape = list(x._keras_shape)
+    if hasattr(x, '_keras_shape')  and hasattr(y, '_keras_shape'):
+        if len(x_keras_shape) >= 2 and len(y_keras_shape) >= 2:
+            output._keras_shape = tuple(x_keras_shape.pop(-1) + \
+                                  tuple(y_keras_shape.pop(-2)))
+        elif len(x_keras_shape) == 1 and len(y_keras_shape) == 1:
+            output._keras_shape = ()
+        else:
+            raise Exception('_keras_shape not defined for dot product of \
+                             input with one-dimension and other, please fix this')
+    return output
 
 
 def batch_dot(x, y, axes=None):
@@ -194,28 +251,73 @@ def min(x, axis=None, keepdims=False):
 def sum(x, axis=None, keepdims=False):
     '''Sum of the values in a tensor, alongside the specified axis.
     '''
-    return T.sum(x, axis=axis, keepdims=keepdims)
+    output = T.sum(x, axis=axis, keepdims=keepdims)
+    if hasattr(x, '_keras_shape'):
+        old_keras_shape = list(x._keras_shape)
+        if keepdims:
+            old_keras_shape[axis] = 1
+        else:
+            old_keras_shape.pop(axis)
+        output._keras_shape = tuple(old_keras_shape)
+
+    return output
 
 
 def prod(x, axis=None, keepdims=False):
     '''Multiply the values in a tensor, alongside the specified axis.
     '''
-    return T.prod(x, axis=axis, keepdims=keepdims)
+    output = T.prod(x, axis=axis, keepdims=keepdims)
+    if hasattr(x, '_keras_shape'):
+        old_keras_shape = list(x._keras_shape)
+        if keepdims:
+            old_keras_shape[axis] = 1
+        else:
+            old_keras_shape.pop(axis)
+        output._keras_shape = tuple(old_keras_shape)
+
+    return output
 
 
 def mean(x, axis=None, keepdims=False):
     dtype = None
     if 'int' in x.dtype:
         dtype = _FLOATX
-    return T.mean(x, axis=axis, keepdims=keepdims, dtype=dtype)
+    output = T.mean(x, axis=axis, keepdims=keepdims, dtype=dtype)
+    if hasattr(x, '_keras_shape'):
+        old_keras_shape = list(x._keras_shape)
+        if keepdims:
+            old_keras_shape[axis] = 1
+        else:
+            old_keras_shape.pop(axis)
+        output._keras_shape = tuple(old_keras_shape)
+    return output
+
 
 
 def std(x, axis=None, keepdims=False):
-    return T.std(x, axis=axis, keepdims=keepdims)
+    output = T.std(x, axis=axis, keepdims=keepdims)
+    if hasattr(x, '_keras_shape'):
+        old_keras_shape = list(x._keras_shape)
+        if keepdims:
+            old_keras_shape[axis] = 1
+        else:
+            old_keras_shape.pop(axis)
+        output._keras_shape = tuple(old_keras_shape)
+
+    return output
 
 
 def var(x, axis=None, keepdims=False):
-    return T.var(x, axis=axis, keepdims=keepdims)
+    output = T.var(x, axis=axis, keepdims=keepdims)
+    if hasattr(x, '_keras_shape'):
+        old_keras_shape = list(x._keras_shape)
+        if keepdims:
+            old_keras_shape[axis] = 1
+        else:
+            old_keras_shape.pop(axis)
+        output._keras_shape = tuple(old_keras_shape)
+
+    return output
 
 
 def any(x, axis=None, keepdims=False):
@@ -233,72 +335,135 @@ def argmin(x, axis=-1):
 
 
 def square(x):
-    return T.sqr(x)
+    output = T.sqr(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def abs(x):
-    return T.abs_(x)
+    output = T.abs_(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def sqrt(x):
     x = T.clip(x, 0., np.inf)
-    return T.sqrt(x)
+    output = T.sqrt(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def exp(x):
-    return T.exp(x)
+    output = T.exp(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def log(x):
-    return T.log(x)
+    output = T.log(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def round(x):
-    return T.round(x)
-
+    output = T.round(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 def sign(x):
-    return T.sgn(x)
+    output = T.sgn(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
+
 
 
 def pow(x, a):
-    return T.pow(x, a)
-
+    output = T.pow(x, a)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 def clip(x, min_value, max_value):
     if max_value < min_value:
         max_value = min_value
-    return T.clip(x, min_value, max_value)
+    output = T.clip(x, min_value, max_value)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def equal(x, y):
-    return T.eq(x, y)
+    output = T.eq(x, y)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def not_equal(x, y):
-    return T.neq(x, y)
+    output = T.neq(x, y)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def maximum(x, y):
-    return T.maximum(x, y)
+    output = T.maximum(x, y)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def minimum(x, y):
-    return T.minimum(x, y)
+    output = T.minimum(x, y)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def sin(x):
-    return T.sin(x)
+    output = T.sin(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def cos(x):
-    return T.cos(x)
+    output = T.cos(x)
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 # SHAPE OPERATIONS
 
 def concatenate(tensors, axis=-1):
-    return T.concatenate(tensors, axis=axis)
+    output = T.concatenate(tensors, axis=axis)
+    if hasattr(tensors[0], '_keras_shape'):
+        o_ks = list(tensors[0]._keras_shape)
+        single_ks = 0
+        valid = True
+        for t in tensors:
+            if hasattr(t, '_keras_shape'):
+                this_single_ks = t._keras_shape[axis]
+                if this_single_ks is not None:
+                    single_ks += this_single_ks
+                else:
+                    single_ks = None
+                    break
+            else:
+                valid = False
+                break
+        if valid:
+            o_ks[axis] = single_ks
+            output._keras_shape = tuple(o_ks)
+    return output
 
 
 def reshape(x, shape):
@@ -312,8 +477,23 @@ def permute_dimensions(x, pattern):
     dimension indices, e.g. [0, 2, 1].
     '''
     pattern = tuple(pattern)
-    return x.dimshuffle(pattern)
-
+    output = x.dimshuffle(pattern)
+    if hasattr(x, '_keras_shape'):
+        old_ks = x._keras_shape
+        new_ks = list(old_ks)
+        for idx, ind in enumerate(pattern):
+            new_ks[idx] = old_ks[ind]
+        output._keras_shape = tuple(new_ks)
+    return output
+    
+def reverse(x, axis=None):
+    ndim = x.ndim
+    slice_order = [slice(0,None,1) for _ in range(ndim)]
+    slice_order[axis] = slice(-1, None,-1)
+    output = x[tuple(slice_order)]
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 def repeat_elements(x, rep, axis):
     '''Repeat the elements of a tensor along an axis, like np.repeat.
@@ -720,20 +900,40 @@ def rnn(step_function, inputs, initial_states,
 
 def switch(condition, then_expression, else_expression):
     '''condition: scalar tensor.
-    '''
-    return T.switch(condition, then_expression, else_expression)
+    '''   
+    
+    output = T.switch(condition, then_expression, else_expression)
+    if hasattr(then_expression, '_keras_shape'):
+        t_ks = then_expression._keras_shape
+    if hasattr(else_expression, '_keras_shape'):
+        e_ks = else_expression._keras_shape
+    if hasattr(then_expression, '_keras_shape') and hasattr(else_expression, '_keras_shape'):
+        t_ks = then_expression._keras_shape
+        e_ks = else_expression._keras_shape
+        if t_ks == e_ks:
+            output._keras_shape = t_ks
+        else:         
+            warnings.warn('keras_shape not determined at switch function!')            
+    return output
 
-
-def in_train_phase(x, alt):
-    x = T.switch(_LEARNING_PHASE, x, alt)
-    x._uses_learning_phase = True
-    return x
+def in_train_phase(x, alt): 
+    output = T.switch(_LEARNING_PHASE, x, alt)
+    if hasattr(x,'_keras_shape'):
+        output._keras_shape = x._keras_shape
+    if hasattr(alt,'_keras_shape'):
+        output._keras_shape = alt._keras_shape
+    output._uses_learning_phase = True
+    return output
 
 
 def in_test_phase(x, alt):
-    x = T.switch(_LEARNING_PHASE, alt, x)
-    x._uses_learning_phase = True
-    return x
+    output = T.switch(_LEARNING_PHASE, alt, x)
+    if hasattr(x,'_keras_shape'):
+        output._keras_shape = x._keras_shape
+    if hasattr(alt,'_keras_shape'):
+        output._keras_shape = alt._keras_shape
+    output._uses_learning_phase = True
+    return output
 
 
 # NN OPERATIONS
@@ -743,22 +943,33 @@ def relu(x, alpha=0., max_value=None):
                                      'Theano is out of date. '
                                      'Install the latest version with:\n'
                                      'pip install git+git://github.com/Theano/Theano.git --upgrade --no-deps')
-    x = T.nnet.relu(x, alpha)
+    output = T.nnet.relu(x, alpha)
     if max_value is not None:
-        x = T.minimum(x, max_value)
-    return x
-
+        output = T.minimum(output, max_value)
+    if hasattr(x,'_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
+    
 
 def softmax(x):
-    return T.nnet.softmax(x)
+    output = T.nnet.softmax(x)
+    if hasattr(x,'_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def softplus(x):
-    return T.nnet.softplus(x)
+    output = T.nnet.softplus(x)
+    if hasattr(x,'_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def softsign(x):
-    return T_softsign(x)
+    output = T_softsign(x)
+    if hasattr(x,'_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def categorical_crossentropy(output, target, from_logits=False):
@@ -788,16 +999,24 @@ def binary_crossentropy(output, target, from_logits=False):
 
 
 def sigmoid(x):
-    return T.nnet.sigmoid(x)
-
+    output = T.nnet.sigmoid(x)
+    if hasattr(x,'_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 def hard_sigmoid(x):
-    return T.nnet.hard_sigmoid(x)
-
+    output = T.nnet.hard_sigmoid(x)
+    if hasattr(x,'_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
+    
 
 def tanh(x):
-    return T.tanh(x)
-
+    output = T.tanh(x)
+    if hasattr(x,'_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
+    
 
 def dropout(x, level, seed=None):
     if level < 0. or level >= 1:
@@ -806,14 +1025,19 @@ def dropout(x, level, seed=None):
         seed = np.random.randint(1, 10e6)
     rng = RandomStreams(seed=seed)
     retain_prob = 1. - level
-    x *= rng.binomial(x.shape, p=retain_prob, dtype=x.dtype)
-    x /= retain_prob
-    return x
+    output  = x* rng.binomial(x.shape, p=retain_prob, dtype=x.dtype)
+    output /= retain_prob
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 def l2_normalize(x, axis):
     norm = T.sqrt(T.sum(T.square(x), axis=axis, keepdims=True))
-    return x / norm
+    output = x / norm
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
 
 
 # CONVOLUTIONS

@@ -29,8 +29,14 @@ def conv2dlayer(tparams,x, options, nb_filter, nb_row, nb_col, prefix='conv',
             border_mode='valid', subsample=(1, 1), dim_ordering= 'th',
 	        activation='linear', W_regularizer=None, 
 	        b_regularizer=None, activity_regularizer=None,
-            W_constraint=None, b_constraint=None,
+            W_constraint=None, b_constraint=None, 
             dilated = 0, rate = 1,**kwargs):
+
+    module_identifier = get_layer_identifier(prefix)
+    init_LayerInfo(options, name = module_identifier)
+    thismodule = options[module_identifier]
+    
+    
     input_shape = x._keras_shape
     def get_output_shape_for(input_shape):
         if dim_ordering == 'th':
@@ -42,8 +48,8 @@ def conv2dlayer(tparams,x, options, nb_filter, nb_row, nb_col, prefix='conv',
         else:
             raise Exception('Invalid dim_ordering: ' + dim_ordering)
 
-        rows = conv_output_length(rows, nb_row,border_mode, subsample[0])
-        cols = conv_output_length(cols, nb_col,border_mode, subsample[1])
+        rows = np_utils.conv_output_length(rows, nb_row,border_mode, subsample[0])
+        cols = np_utils.conv_output_length(cols, nb_col,border_mode, subsample[1])
 
         if dim_ordering == 'th':
             return (input_shape[0], nb_filter, rows, cols)
@@ -55,11 +61,11 @@ def conv2dlayer(tparams,x, options, nb_filter, nb_row, nb_col, prefix='conv',
     activation_func = activations.get(activation) 
     if W_regularizer:
        W_regularizer.set_param(tparams[get_name(prefix,'W')])
-       options['regularizers'].append(W_regularizer)
+       thismodule.regularizers.append(W_regularizer)
 
     if b_regularizer:
        b_regularizer.set_param(tparams[get_name(prefix,'b')])
-       options['regularizers'].append(b_regularizer)
+       thismodule.regularizers.append(b_regularizer)
     
     if dim_ordering == 'th':
         stack_size = input_shape[1]
@@ -93,9 +99,10 @@ def Convolution2D(tparams, x, options, nb_filter, nb_row, nb_col, params = None,
     params > tparams > empty
     if params covers all the weights_keys. use params to update tparams.
     '''
-    module_identifier = 'layer_' + prefix
+    module_identifier = get_layer_identifier(prefix)
     init_LayerInfo(options, name = module_identifier)
-    if not belonging_Module:
+    
+    if belonging_Module is None:
         belonging_Module = options['belonging_Module'] if belonging_Module in options else None
     else:
         belonging_Module = belonging_Module
@@ -109,8 +116,10 @@ def Convolution2D(tparams, x, options, nb_filter, nb_row, nb_col, params = None,
     output = conv2dlayer(tparams, x, options, nb_filter, nb_row, nb_col, prefix=prefix, 
                          border_mode=border_mode,subsample=subsample, dim_ordering= dim_ordering,
                          activation=activation, W_regularizer=W_regularizer, b_regularizer=b_regularizer, 
-                         activity_regularizer=activity_regularizer,W_constraint=W_constraint, 
+                         activity_regularizer=activity_regularizer,W_constraint=W_constraint,
                          b_constraint=b_constraint,dilated = 0, rate = 1,**kwargs)
+    
+    updateModuleInfo(options, tparams, prefix, module_identifier)
     update_father_module(options,belonging_Module, module_identifier)
     return output
 
@@ -128,9 +137,9 @@ def MaxPooling2D(inputs, pool_size=(2,2), strides=(2,2), border_mode='same', dim
             else:
                 raise Exception('Invalid dim_ordering: ' + dim_ordering)
 
-            rows = conv_output_length(rows, pool_size[0],
+            rows = np_utils.conv_output_length(rows, pool_size[0],
                                     border_mode, strides[0])
-            cols = conv_output_length(cols, pool_size[1],
+            cols = np_utils.conv_output_length(cols, pool_size[1],
                                     border_mode, strides[1])
 
             if dim_ordering == 'th':

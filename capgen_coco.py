@@ -21,9 +21,7 @@ dataroot = os.path.join(projroot, 'Data')
 #sys.path.insert(0, os.path.join(CopyRoot, 'Code', kerasversion,'keras','layers'))
 #sys.path.insert(0, '.')
 
-
-from capgen import train
-
+from Core.train import train
 parser = argparse.ArgumentParser()
 #parser.add_argument("--attn_type",  default="deterministic",
 #                    help="type of attention mechanism")

@@ -6,8 +6,9 @@ import argparse
 import os
 import sys
 #os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_compile,optimizer=None,force_device=True, exception_verbosity=high,allow_gc=False'
-os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_run,force_device=True, allow_gc=False'
+os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_run,force_device=True, allow_gc=True'
 os.environ['debug_mode'] =  'False'
+os.environ['homogeneous_data'] = 'True'
 
 CopyRoot  = os.path.join('..','..','..')
 projroot = os.path.join('..')
@@ -87,10 +88,10 @@ if __name__ == "__main__":
                 "attn_type": "dynamic" ,#"dynamic",
                 #"attn_type": "deterministic" ,#"dynamic",
                 "addressing": "ntm",
-                "dim_word": 511,
+                "dim_word": 512,
                 "ctx_dim": 512,
                 "proj_ctx_dim": 512,
-                "dim": 128,
+                "dim": 1800,
                 "shift_range":3,
                 "n_layers_att": 2,
                 "n_layers_out": 1,
@@ -102,23 +103,27 @@ if __name__ == "__main__":
                 "alpha_c": 1.,
                 "prev2out": True,
                 "ctx2out": True,
-                "lrate": 0.0002 ,#0.01,
+                "lrate": 0.01,
                 "optimizer": "adam", #RMSprop
                 "selector": True,
                 "use_dropout": 0.5,
-                "lstm_dropout": 0.25,
+                "lstm_dropout": 0,
                 "save_per_epoch": False,
                 "reload": False,
                 "valid_batch_size":2,
                 "patience":10,
                 "maxlen":100,
                 "batch_size":64,
-                "validFreq":2000,
+                "validFreq":100,
                 "dispFreq":100,
-                "saveFreq":10,
+                "saveFreq":100,
                 "sampleFreq":100,
                 "dataset": "flickr30k",
-                "data_path" : data_path
+                "data_path" : data_path,
+                'print_training': True ,
+                'print_validation': False,
+                 'clipnorm': 0,
+                 'clipvalue':0
                  } 
     # get updates from command line
     args = parser.parse_args()

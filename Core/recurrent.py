@@ -8,7 +8,7 @@ from utils import activations, initializations, regularizers
 #-------------------------LSTM Layer------------------------------
 # This function implements the lstm fprop
 def init_lstm(options, params, prefix='lstm', nin=None, dim=None,
-              init='norm_weight', inner_init='othogo_weight',
+              init='norm_weight', inner_init='ortho_weight',
               forget_bias_init='one', trainable = True, **kwargs):
     init = initializations.get(init)
     inner_init = initializations.get(inner_init)
@@ -53,6 +53,7 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
     state_below: timestep * batchsize * input_dim
     options: model configuration
     '''
+    
     def get_dropout(shapelist=[None,None], dropoutrate = 0):
         #if self.seed is None:
         if dropoutrate is not None:
@@ -69,7 +70,13 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
 
     nsteps = state_below.shape[0]
     dim = tparams[get_name(prefix,'U')].shape[0]
-   
+    
+    has_keras_shape = False
+    if hasattr(state_below, '_keras_shape'):
+        has_keras_shape = True
+        state_keras_shape = state_below._keras_shape
+    
+        
     # if we are dealing with a mini-batch
     if state_below.ndim == 3:
         n_samples = state_below.shape[1]
@@ -114,8 +121,13 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
         c = activation(_slice(preact, 3, dim))
 
         c = f * c_ + i * c
-        h = o * activation(c)
+        #c = m_[:,None] * c + (1. - m_)[:,None] * c_ # add by ypxie
+        c = T.switch(m_, c, c_) # add by ypxie
 
+        h = o * activation(c)
+        h  = T.switch(m_, h , h_) # add by ypxie
+        #h = m_[:,None] * h + (1. - m_)[:,None] * h_  #add by ypxie
+        
         return h, c, i, f, o, preact
 
 
@@ -132,13 +144,19 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None,
                                 outputs_info=[init_state, init_memory, None, None, None, None],
                                 name=get_name(prefix, '_layers'),
                                 n_steps=nsteps, profile=False)
-    
+        
+    if has_keras_shape:
+        hid_dim = T.get_value(tparams[get_name(prefix,'U')]).shape[0]
+        out_keras_shape = tuple(state_keras_shape[0:-1]) + (hid_dim,)
+        rval[0] = T.add_keras_shape(rval[0], keras_shape = out_keras_shape)
+        #rval[0]._keras_shape = out_keras_shape
+        
     return rval
 
 def LSTM(tparams, x, options, params = None, prefix='lstm', nin=None, dim=None,
-              init='norm_weight', inner_init='othogo_weight',forget_bias_init='one', 
-              inner_activation='sigmoid', trainable = True,
-              mask=None,init_memory=None, init_state=None, activation='tanh',
+              init='norm_weight', inner_init='ortho_weight',forget_bias_init='one', 
+              inner_activation='sigmoid', trainable = True,mask=None,
+              init_memory=None, init_state=None, activation='tanh',
               nner_activation='hard_sigmoid', belonging_Module=None,**kwargs):
     '''
     params > tparams > empty
@@ -151,15 +169,19 @@ def LSTM(tparams, x, options, params = None, prefix='lstm', nin=None, dim=None,
     else:
         belonging_Module = belonging_Module
 
-    input_shape = x._keras_shape
+    if hasattr(x, '_keras_shape'):
+        input_shape = x._keras_shape
+        nin = input_shape[-1]
+
     tmp_params = OrderedDict()
-    tmp_params = init_lstm(prefix=prefix, nin=nin, dim=dim,init=init, inner_init=inner_init,
+    tmp_params = init_lstm(options, tmp_params, prefix=prefix, nin=nin, dim=dim,init=init, inner_init=inner_init,
                           forget_bias_init=forget_bias_init,trainable = trainable, **kwargs)
     update_or_init_params(tparams, params, tmp_params=tmp_params)
     
     output = lstm_layer( tparams, x, options, prefix= prefix, mask=mask,init_memory=init_memory,
                          init_state=init_state, activation=activation,inner_activation=inner_activation,
                          **kwargs)
+    updateModuleInfo(options, tparams, prefix, module_identifier)
     update_father_module(options,belonging_Module, module_identifier)
     return output
 
@@ -198,7 +220,7 @@ def init_dynamic_lstm_cond(options, params, prefix='lstm_cond', nin=None, dim=No
                          inner_init((dim,dim),symbolic=False)], axis=1)
     params[get_name(prefix,'U')] =  npwrapper(U, trainable = trainable)
     b =   np.hstack((np.zeros(dim),
-                     forget_bias_init((dim),symbolic=False) + 4,
+                     forget_bias_init((dim),symbolic=False),
                      np.zeros(dim),
                      np.zeros(dim)))   
     # bias to LSTM
@@ -578,22 +600,27 @@ def cond_LSTM(tparams, x, options, params = None,prefix='lstm_cond', nin=None,
         belonging_Module = options['belonging_Module'] if 'belonging_Module' in options else None
     else:
         belonging_Module = belonging_Module
-    input_shape = x._keras_shape
+    if hasattr(x, '_keras_shape'):
+        input_shape = x._keras_shape
+        nin = input_shape[-1]
+    if hasattr(context, '_keras_shape'):
+        contex_shape = context._keras_shape
+        ctx_dim = contex_shape[-1]
+    
     tmp_params = OrderedDict()
-    tmp_params = init_lstm(prefix= prefix, nin=nin, dim=dim, init=init, 
-                           inner_init=inner_init,forget_bias_init=forget_bias_init,
-                           ctx_dim=ctx_dim, proj_ctx_dim=proj_ctx_dim,  
-                           trainable=trainable,  **kwargs)
+    tmp_params = init_dynamic_lstm_cond(options, tmp_params, prefix= prefix, nin=nin, dim=dim, init=init, 
+                                       inner_init=inner_init,forget_bias_init=forget_bias_init,
+                                       ctx_dim=ctx_dim, proj_ctx_dim=proj_ctx_dim,  
+                                       trainable=trainable,  **kwargs)
     update_or_init_params(tparams, params, tmp_params=tmp_params)
-    
-    options[module_identifier].weights_name.extend(tmp_params.keys())
-    options[module_identifier].trainable_weights.extend([tparams[k] for k in tmp_params.keys()])
-        
-    output = lstm_layer(tparams, x, options, prefix= prefix, mask=mask,
-                        context=context, one_step=one_step,init_memory=init_memory, 
-                        init_state=init_state, rng=rng, sampling=sampling,
-                        init_alpha = init_alpha, argmax=argmax,
-                        activation=activation, inner_activation=inner_activation,**kwargs)
-    
+      
+    output = dynamic_lstm_cond_layer(   tparams, x, options, prefix= prefix, mask=mask,
+                                        context=context, one_step=one_step,init_memory=init_memory, 
+                                        init_state=init_state, rng=rng, sampling=sampling,
+                                        init_alpha = init_alpha, argmax=argmax,
+                                        activation=activation, inner_activation=inner_activation,
+                                        **kwargs)
+
+    updateModuleInfo(options, tparams, prefix, module_identifier)
     update_father_module(options,belonging_Module, module_identifier)
     return output

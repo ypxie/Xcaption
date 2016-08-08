@@ -5,6 +5,8 @@ from theano.scan_module import scan_utils
 import logging
 from collections import OrderedDict
 from backend.scan_utils import *
+from backend.keras_backend.common  import *
+
 _logger = logging.getLogger('theano.scan_module.scan')
 _FLOATX = 'float32'
 floatX = _FLOATX
@@ -17,6 +19,7 @@ class npwrapper(np.ndarray):
     def __new__(cls, input_array, trainable=True):
         obj = np.asarray(input_array).view(cls)
         obj.trainable = trainable
+        obj._keras_shape = obj.shape
         #obj.random = np.random
         #obj.linalg = np.linalg
         return obj 
@@ -28,6 +31,7 @@ class npwrapper(np.ndarray):
         if obj is None: return
         self.trainable = getattr(obj, 'trainable', None)
         self.set_value = getattr(obj, 'set_value', self.set_value)
+        self._keras_shape = self.shape
         #self.linalg = getattr(obj, 'linalg', np.linalg)
         
     def __array_wrap__(self, out_arr, context=None):
@@ -42,8 +46,10 @@ class npwrapper(np.ndarray):
         else:
             self[:] = value
         
-
-
+def add_keras_shape(x, keras_shape = None):
+    x = npwrapper(x)
+    x._keras_shape = keras_shape
+    return x
     
 def learning_phase():
     # False = test, True = train
@@ -57,6 +63,7 @@ def in_train_phase(x, alt):
     return x
 
 def isnan(x):
+    
     if isinstance(x, np.ndarray):
         return np.all(x==None)
     else:
@@ -69,7 +76,7 @@ def variable(value, dtype=_FLOATX, name=None):
 shared = variable
 
 def scalar(name=None, dtype=_FLOATX):
-    return np.asscalar(0,dtype=dtype)
+    return variable(np.asscalar(0,dtype=dtype))
     
 def gradients(cost, wrt=None, **kwargs):
     '''Pretending to do gradient but actually do nothing. :)
@@ -99,7 +106,7 @@ def pow(x, a):
 
 
 def get_value(p):
-    return p
+    return variable(p)
 
 def batch_get_value(xs):
     '''Returns the value of more than one tensor variable,
@@ -109,7 +116,7 @@ def batch_get_value(xs):
 
 def set_value(x, value):
     x[:] = value
-    return x
+    return variable(x)
     
 
 def RandomStreams(seed = 1234):
@@ -120,7 +127,7 @@ def RandomStreams(seed = 1234):
 def normal(shape=None, mean=0.0, std=1.0, dtype=_FLOATX, seed=None,rng = None):
     if rng is None:
         seed = np.random.randint(1, 10e6)
-        rng = rRandomStreams(seed=seed)
+        rng = RandomStreams(seed=seed)
     if shape is None:
         shape = (1)
     return rng.normal(avg=mean, std=std, size=shape).astype(dtype)
@@ -143,7 +150,28 @@ def binomial(shape=None, p=0.0, n =1, dtype=_FLOATX, rng=None):
         shape = p.shape
     return rng.binomial(n=n, p=p,size= shape).astype(dtype)
     
-
+def concatenate(tensors, axis=-1):
+    output = npwrapper(np.concatenate(tensors, axis=axis))
+    if hasattr(tensors[0], '_keras_shape'):
+        o_ks = list(tensors[0]._keras_shape)
+        single_ks = 0
+        valid = True
+        for t in tensors:
+            if hasattr(t, '_keras_shape'):
+                this_single_ks = t._keras_shape[axis]
+                if this_single_ks is not None:
+                    single_ks += this_single_ks
+                else:
+                    single_ks = None
+                    break
+            else:
+                valid = False
+                break
+        if valid:
+            o_ks[axis] = single_ks
+            output._keras_shape = tuple(o_ks)
+    return output
+    
 def multinomial(shape=None, p=0.0, n =1, dtype=_FLOATX, rng=None):
     if rng is None:
         seed = np.random.randint(1, 10e6)
@@ -156,14 +184,14 @@ def multinomial(shape=None, p=0.0, n =1, dtype=_FLOATX, rng=None):
 
 def matrix(name='x', dtype='float32', shape = None):
     x= np.zeros(shape).astype(dtype)
-    return x
+    return variable(x)
         
 def tensor3(name='x', dtype='float32', shape = None):
     x= np.zeros(shape).astype(dtype)
-    return x
+    return variable(x)
 def tensor4(name='x', dtype='float32', shape = None):
     x= np.zeros(shape).astype(dtype)
-    return x
+    return variable(x)
 
 def set_subtensor(dest, source):
     # you can not use return value, since dest can be a indexed tensor which 
@@ -177,7 +205,8 @@ def assign_subtensor(dest, source, dest_slice):
 
 def alloc(value, *shape):
     a = zeros(tuple(shape)) + value
-    return a
+    return variable(a)
+
 def unbroadcast(x, *axes):
 	return x
 def addbroadcast(x, *axes):
@@ -249,11 +278,11 @@ def eval(x):
     '''
     return x
 def ones_like(x):
-    return ones(x.shape)
+    return variable(ones(x.shape))
 
 
 def zeros_like(x):
-    return zeros(x.shape)
+    return npwrapper(zeros(x.shape))
 
 def zeros(shape,dtype= _FLOATX, name=None,**kwargs):
     return variable(np.zeros(shape), dtype=dtype, name=name)
@@ -280,13 +309,10 @@ def gather(reference, indices):
     '''
     return reference[indices]
 
-
-
 def clip(x, min_value, max_value):
     if max_value < min_value:
         max_value = min_value
     return np.clip(x, min_value, max_value)
-
 
 def equal(x, y):
     return np.equal(x, y)
@@ -305,6 +331,15 @@ def permute_dimensions(x, pattern):
     pattern = tuple(pattern)
     return x.transpose(pattern)
 
+def reverse(x, axis=None):
+    ndim = x.ndim
+    slice_order = [slice(0,None,1) for _ in range(ndim)]
+    slice_order[axis] = slice(-1, None,-1)
+    output = x[tuple(slice_order)]
+    if hasattr(x, '_keras_shape'):
+        output._keras_shape = x._keras_shape
+    return output
+    
 def repeat_elements(x, rep, axis):
     '''Repeat the elements of a tensor along an axis, like np.repeat.
 
@@ -354,7 +389,7 @@ def pack(x):
 def switch(condition, then_expression, else_expression):
     '''condition: scalar tensor.
     '''
-    return np.where(condition, then_expression, else_expression)
+    return variable(np.where(condition, then_expression, else_expression))
 
 def relu(x, alpha=0., max_value=None):
     x = switch(x>0, x, alpha*x)
@@ -783,9 +818,7 @@ def scan(fn,
         if each.get('initial', None) is not None:
             OUTPUTS_AS_INPUT_IND[idx] = 1
             Not_None_outpus_ind.append(idx)
-    
-        
-    
+       
     # we add actual n step
     outputs_loop = [] 
     for i, init_out in enumerate(outs_info):
