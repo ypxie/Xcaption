@@ -39,7 +39,9 @@ def variable(value, dtype=_FLOATX, name=None):
     '''Instantiate a tensor variable.
     '''
     value = np.asarray(value, dtype=dtype)
-    return theano.shared(value=value, name=name, strict=False)
+    vv = theano.shared(value=value, name=name, strict=False)
+    vv._keras_shape = value.shape
+    return vv
 
 
 def placeholder(shape=None, ndim=None, dtype=_FLOATX, name=None):
@@ -179,11 +181,12 @@ def dot(x, y):
     if hasattr(x, '_keras_shape'):
         x_keras_shape = list(x._keras_shape)
     if hasattr(y, '_keras_shape'):
-        y_keras_shape = list(x._keras_shape)
+        y_keras_shape = list(y._keras_shape)
     if hasattr(x, '_keras_shape')  and hasattr(y, '_keras_shape'):
         if len(x_keras_shape) >= 2 and len(y_keras_shape) >= 2:
-            output._keras_shape = tuple(x_keras_shape.pop(-1) + \
-                                  tuple(y_keras_shape.pop(-2)))
+            x_keras_shape.pop(-1)
+            y_keras_shape.pop(-2)
+            output._keras_shape = tuple(x_keras_shape + y_keras_shape)
         elif len(x_keras_shape) == 1 and len(y_keras_shape) == 1:
             output._keras_shape = ()
         else:
@@ -571,7 +574,7 @@ def batch_flatten(x):
     return x
 
 
-def expand_dims(x, dim=-1):
+def expand_dims(x, dim=-1,broadcastable = True):
     '''Add a 1-sized dimension at index "dim".
     '''
     pattern = [i for i in range(x.type.ndim)]
@@ -581,7 +584,16 @@ def expand_dims(x, dim=-1):
         else:
             dim = dim % x.type.ndim + 1
     pattern.insert(dim, 'x')
-    return x.dimshuffle(pattern)
+    output = x.dimshuffle(pattern)
+    
+    if broadcastable != True:
+       output =  T.unbroadcast(output, dim)
+    if hasattr(x,'_keras_shape'):
+        old_ks = list(x._keras_shape)
+        old_ks.insert(dim, 1)
+        output._keras_shape = tuple(old_ks)
+        
+    return output
 
 
 def squeeze(x, axis):

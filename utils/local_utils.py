@@ -17,8 +17,9 @@ from skimage import color, measure
 import scipy.ndimage
 
 from numba import jit, autojit
-from utils.generic_utils import get_from_module
+from fuel.generic_utils import get_from_module
 
+import random
 def get(identifier):
     return get_from_module(identifier, globals(), 'local_utils')
 
@@ -158,17 +159,25 @@ def imresize_shape(img, outshape):
         temp = np.reshape(temp, temp.shape + (1,))
     return temp
 
-def pre_process_img(img, yuv = True, mode = 'channel', norm = True):
+def pre_process_img(img, yuv = False, mode = 'rescale', norm = True):
     if yuv :
-      img = RGB2YUV(img).astype(float)
-    img = img.astype(float)
+      img = RGB2YUV(img)
+    img = img.astype('float32') 
     if len(img.shape) == 2:
         img = np.expand_dims(img,axis = -1)
     # first of all normalize the img
     if norm:
-        for ch_id in range(img.shape[2]):
-            this_ch = img[:,:, ch_id]
-            img[:,:, ch_id] = (this_ch - np.mean(this_ch)) / np.std(this_ch)
+        if mode == 'channel':
+            for ch_id in range(img.shape[2]):
+                this_ch = img[:,:, ch_id]
+                img[:,:, ch_id] = (this_ch - np.mean(this_ch)) / (np.std(this_ch) + 1e-8)
+        elif mode == 'naive':
+            img = img/(np.max(img[:]) + 1e-8)
+        elif mode == 'rescale':
+            img = (img - np.min(img[:])) / ( np.max(img[:]) - np.min(img[:]) + 1e-8)  
+            img = img - np.mean(img[:])
+        else:
+            raise Exception('Unknown mode for pre_processing')
     return img
 
 def mysqueeze(a, axis = None):
@@ -277,7 +286,53 @@ def yieldfileinfo(imgdir, contourextList,ImgExtList,LabelExt):
                 break
            if flag == 0:
               print "Image: {s} does not have matfile".format(s = os.path.splitext(f)[0] )
-    return
+
+def getFromFolderList(subfolder_list,  number_list = -1, contourextList = '', 
+               ImgExtList = '.png',LabelExt = '.mat'):
+    ''' 
+    subfolder_list: the folder that contain the images,  it is a list of folders.
+    number_list: the number of images you wanna take
+    '''
+    random.seed(4)
+    if type(subfolder_list) != list:
+        subfolder_list = [subfolder_list]
+    if type(number_list) != list:
+        number_list = [number_list]
+    if len(number_list) == 1:
+        number_list = number_list * len(subfolder_list)
+    
+    returnDict_list = []     
+    for imgdir, num_img in zip(subfolder_list, number_list):
+        alllist  = [f for f in os.listdir(imgdir)]
+        if len(subfolder_list) == 1 and len(alllist) < num_img:
+            return None 
+            # because we want to terminate when the number of image is larger than this.
+            
+        total_num = len(alllist)
+        list_of_file = range(total_num)
+        random.shuffle(list_of_file)
+        img_count = 0
+        for file_ind in list_of_file:
+            returnDict = {}
+            f = alllist[file_ind]
+            if os.path.isfile(os.path.join(imgdir,f)) and \
+                    os.path.splitext(f)[1] in ImgExtList:
+                flag = 0
+                for contourext in contourextList:
+                    thismatfile  = os.path.join(imgdir,os.path.splitext(f)[0] + \
+                    contourext + LabelExt)
+                    if os.path.isfile(thismatfile):
+                        returnDict['thisfile'] = os.path.join(imgdir,f)
+                        returnDict['thismatfile'] = thismatfile
+                        returnDict_list.append(returnDict)
+                        flag = 1
+                        img_count += 1
+                        break
+                if flag == 0:
+                    print "Image: {s} does not have matfile".format(s = os.path.splitext(f)[0] )
+            if num_img > 0 and img_count == num_img:
+                break
+    return  returnDict_list
 
 def getfilelist(Imagefolder, inputext):
     if type(inputext) is not list:
@@ -294,8 +349,11 @@ def find(logicalMatrix):
     totalInd = np.arange(0, len(logicalMatrix.flat))
     return totalInd[logicalMatrix.flatten()]
 
-def imshow(img):
-    plt.figure()
+def imshow(img, size=None):
+    if size is not None:
+        plt.figure(figsize = size)
+    else:
+        plt.figure()
     plt.imshow(img)
     plt.show()
 
@@ -341,14 +399,16 @@ def Points2Patches(centerIndx, img, patchsize):
 
     for i in range(numberofInd):
        Patches[i,:] = img[se['RS'][i] : se['RE'][i], se['CS'][i]:se['CE'][i],:].flatten()
-       #imshow(img[se['RS'][i] : se['RE'][i], se['CS'][i]:se['CE'][i],:][...,0])
-#       tmp = img[:,:,0].copy() #np.zeros((img.shape[0], img.shape[1]))
-#       tmp[se['RS'][i] : se['RE'][i], se['CS'][i]:se['CE'][i]] = 255
-#       #tmp = scipy.ndimage.morphology.grey_dilation(tmp,(3,3) )
-#       imshow(tmp)
+            #imshow(img[se['RS'][i] : se['RE'][i], se['CS'][i]:se['CE'][i],:][...,0])
+        #       tmp = img[:,:,0].copy() #np.zeros((img.shape[0], img.shape[1]))
+        #       tmp[se['RS'][i] : se['RE'][i], se['CS'][i]:se['CE'][i]] = 255
+        #       #tmp = scipy.ndimage.morphology.grey_dilation(tmp,(3,3) )
+        #       imshow(tmp)
     return Patches
 
+
 def CentralToOrigin(centralRow, centralCol,Rowsize,Colsize):
+    
     RowUp = int(Rowsize/2)
     RowDown = Rowsize - RowUp - 1
     ColLeft = int(Colsize/2)
@@ -381,93 +441,41 @@ def patchflow(Img,chunknum,row,col,channel,**kwargs):
         chunkstart += thisnum
         yield Chunkfile[0:thisnum,:]
 
+def Indxflow(Totalnum, batch_size):
+    numberofchunk = int(Totalnum + batch_size - 1)// int(batch_size)   # the floor
+    #Chunkfile = np.zeros((batch_size, row*col*channel))
+    totalIndx = np.random.permutation(np.arange(Totalnum))
+
+    chunkstart = 0
+    for chunkidx in range(int(numberofchunk)):
+        thisnum = min(batch_size, Totalnum - chunkidx*batch_size)
+        thisInd = totalIndx[chunkstart: chunkstart + thisnum]
+        chunkstart += thisnum
+        yield thisInd
+
 def dataflow_two(BatchData, BatchMask,BatchBounary, batch_size):
 
     Totalnum = BatchData.shape[0]
-    numberofchunk = int(Totalnum + batch_size - 1)// int(batch_size)   # the floor
-    #Chunkfile = np.zeros((batch_size, row*col*channel))
+    for thisInd in Indxflow(Totalnum, batch_size):
+        yield BatchData[thisInd, ...], BatchMask[thisInd,...], BatchBounary[thisInd, ...]
 
-    chunkstart = 0
-    for chunkidx in range(int(numberofchunk)):
-        thisnum = min(batch_size, Totalnum - chunkidx*batch_size)
-        thisindx = tuple(range(chunkstart, chunkstart + thisnum, 1))
-        chunkstart += thisnum
-        yield BatchData[thisindx, ...], BatchMask[thisindx,...], BatchBounary[thisindx, ...]
-
+def batchflow(batch_size, *Data):
+    # we dont check Data, they should all have equal first dimension
+    Totalnum = Data[0].shape[0]
+    for thisInd in Indxflow(Totalnum, batch_size):
+        if len(Data) == 1:
+            yield Data[0][thisInd, ...]
+        else:
+            batch_tuple = [s[thisInd,...] for s in Data]
+            yield tuple(batch_tuple)
 
 def dataflow(BatchData, BatchLabel, batch_size):
-
     Totalnum = BatchData.shape[0]
-    numberofchunk = int(Totalnum + batch_size - 1)// int(batch_size)   # the floor
-    #Chunkfile = np.zeros((batch_size, row*col*channel))
-
-    chunkstart = 0
-    for chunkidx in range(int(numberofchunk)):
-        thisnum = min(batch_size, Totalnum - chunkidx*batch_size)
-        thisindx = tuple(range(chunkstart, chunkstart + thisnum, 1))
-        chunkstart += thisnum
-        yield BatchData[thisindx, ...], BatchLabel[thisindx, ...]
-
-class Formatter(object):
-    def __init__(self, im):
-        self.im = im
-    def __call__(self, x, y):
-        z = self.im.get_array()[int(y), int(x)]
-        return 'x={:.01f}, y={:.01f}, z={:.01f}'.format(x, y, z)
-#import numpy as np
-#import matplotlib.pyplot as plt
-#
-#class Formatter(object):
-#    def __init__(self, im):
-#        self.im = im
-#    def __call__(self, x, y):
-#        z = self.im.get_array()[int(y), int(x)]
-#        return 'x={:.01f}, y={:.01f}, z={:.01f}'.format(x, y, z)
-#
-#data = np.random.random((10,10))
-#
-#fig, ax = plt.subplots()
-#im = ax.imshow(data, interpolation='none')
-#ax.format_coord = Formatter(im)
-#plt.show()
-
-def overlayImg_(img, mask, savepath,print_color =[5,119,72],linewidth= 1, alpha = 0.618):
-    #img = img_as_float(data.camera())
-    rows, cols = img.shape[0:2]
-    # Construct a colour image to superimpose
-    color_mask = np.zeros((rows, cols, 3))
-    color_mask[mask == 1] = print_color
-    color_mask[mask == 0] = img[mask == 0]
-    imshow(color_mask)
-
-    if len(img.shape) == 2:
-       img_color = np.dstack((img, img, img))
-    else:
-       img_color = img
-
-    img_hsv = color.rgb2hsv(img_color)
-    color_mask_hsv = color.rgb2hsv(color_mask)
-
-    img_hsv[..., 0] = color_mask_hsv[..., 0]
-    img_hsv[..., 1] = color_mask_hsv[..., 1] * alpha
-
-    img_masked = color.hsv2rgb(img_hsv)
-    # Display the output
-    #f, (ax0, ax1, ax2) = plt.subplots(1, 3,
-    #                                  subplot_kw={'xticks': [], 'yticks': []})
-    #ax0.imshow(img, cmap=plt.cm.gray)
-    #ax1.imshow(color_mask)
-    #ax2.imshow(img_masked)
-    #plt.show()
-
-    img_masked = np.asarray((img_masked/np.max(img_masked) ) * 255, dtype = np.uint8)
+    for thisInd in Indxflow(Totalnum, batch_size):
+        yield BatchData[thisInd, ...], BatchLabel[thisInd, ...]
 
 
-    im = Image.fromarray(img_masked)
-    im.save(savepath)
-
-
-def overlayImg(img, mask,print_color =[5,119,72],linewidth= 1, alpha = 0.618):
+def overlayImg(img, mask,print_color =[5,119,72],linewidth= 1, alpha = 0.618,savepath = None):
     #img = img_as_float(data.camera())
     rows, cols = img.shape[0:2]
     # Construct a colour image to superimpose
@@ -499,6 +507,10 @@ def overlayImg(img, mask,print_color =[5,119,72],linewidth= 1, alpha = 0.618):
 
     img_masked = np.asarray((img_masked/np.max(img_masked) ) * 255, dtype = np.uint8)
 
+    if savepath is not None:
+        im = Image.fromarray(img_masked)
+        im.save(savepath)
+        
     #im = Image.fromarray(img_masked)
     #im.save(savepath)
     return img_masked
@@ -538,7 +550,6 @@ def mask2contour(org, mask, **kwargs):
         setattr(param, key, kwargs[key])
 
     contours = measure.find_contours(mask, 0)
-    print len(contours)
 
     for n, contour in enumerate(contours):
         contour = contour.astype(int)
@@ -551,6 +562,30 @@ def mask2contour(org, mask, **kwargs):
 
     return overlayImg(org, contour_mask , print_color = param.color, linewidth = 1, alpha = 1)
 
+from skimage.measure import regionprops
+def label2contour(org, label_img, print_color = [0,0,1], linewidth = 2, alpha = 1):
+    npad = ((1,1),(1,1))
+    label_img = np.pad(label_img, npad, mode='constant', constant_values=0)
+    contour_img = np.zeros_like(label_img)
+    tmp_img = np.zeros_like(label_img)
+    regions = regionprops(label_img)
+    region_count = 1
+    #contourlist = []
+    for props in regions[1:]:
+        minr, minc, maxr, maxc = props.bbox
+        tmp_img[label_img ==  props.label] = 1
+        thispatch = tmp_img[minr-1:maxr+1, minc-1:maxc+1].copy()
+        contours = measure.find_contours(thispatch, 0)
+        thiscontour = (contours[0] + [minr-1, minc-1]).astype(int)
+        #contourlist.append(thiscontour)
+        contour_img[thiscontour[:, 0], thiscontour[:, 1]] = 1
+        tmp_img.fill(0)
+    
+    contour_img = contour_img.astype(np.uint8)
+    se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(linewidth,linewidth))
+    contour_mask = cv2.dilate(contour_img,se)[1:-1,1:-1]
+    return overlayImg(org, contour_mask , print_color = print_color, alpha = alpha)
+    
 
 def split_img(img, windowsize=1000, board = 0):
     '''

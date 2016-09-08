@@ -51,66 +51,6 @@ def quodra_distance(M,W, k):
     nk = T.sqrt((k**2).sum(axis=-1, keepdims=True))
     return dot / (nM * nk + 0.000000001)  
     
-#def update_controller(self, inp, h_tm1, M):
-#    """We have to update the inner RNN inside the NTM, this
-#    is the function to do it. Pretty much copy+pasta from Keras
-#    """
-#    x = T.concatenate([inp, M], axis=-1)
-#    #1 is for gru, 2 is for lstm
-#    if len(h_tm1) in [1,2]:
-#        if hasattr(self.rnn,"get_constants"):
-#            BW,BU = self.rnn.get_constants(x)
-#            h_tm1 += (BW,BU)
-#    # update state
-#    _, h = self.rnn.step(x, h_tm1)
-#
-#    return h
-
-# some utilities
-# def ortho_weight(ndim):
-#     """
-#     Random orthogonal weights
-#     Used by norm_weights(below), in which case, we
-#     are ensuring that the rows are orthogonal
-#     (i.e W = U \Sigma V, U has the same
-#     # of rows, V has the same # of cols)
-#     """
-#     if type(ndim) == int:
-#         shape = (ndim, ndim)
-#     else:
-#         shape = tuple(ndim)
-#     W = np.random.randn(*shape)
-    
-#     u, _, v = np.linalg.svd(W, full_matrices=False)
-#     # pick the one with the correct shape
-#     q = u if u.shape == shape else v
-#     q = q.reshape(shape)
-#     return q.astype('float32') 
-    
-# def zero_weight(shape):
-#     return np.zeros(shape).astype('float32')
-    
-# def norm_weight(nin,nout=None, scale=0.01, ortho=True):
-#     """
-#     Random weights drawn from a Gaussian
-#     """
-#     if nout is None:
-#         nout = nin
-#     if nout == nin and ortho:
-#         W = ortho_weight(nin)
-#     else:
-#         W = scale * np.random.randn(nin, nout)
-#     return W.astype('float32')
-
-# # some useful shorthands
-# def tanh(x):
-#     return T.tanh(x)
-
-# def rectifier(x):
-#     return T.maximum(0., x)
-
-# def linear(x):
-#     return x
 
 '''
 Theano uses shared variables for parameters, so to
@@ -167,23 +107,27 @@ def load_params(path, params):
             params[kk] = npwrapper(pp[kk], trainable=True)
         else:
             if hasattr(params[kk], 'trainable'):
-               params[kk] = npwrapper(pp[kk], trainable=params[kk].trainable)
+                params[kk] = npwrapper(pp[kk], trainable=params[kk].trainable)
             else:
-               params[kk] = npwrapper(pp[kk], trainable=True)
+                params[kk] = npwrapper(pp[kk], trainable=True)
     return params
 
 def updateModuleInfo(options=None, tparams=None, prefix=None, module_identifier=None):
+    ''' 
+    update the current Module weights based on the tparams.
+    '''
     thisModule = options[module_identifier]
-    
+    thisModule.build = True
     sub_Params = get_subdict_prefix(tparams, prefix)
-    for k, v in sub_Params.iteritems():
-        if v.trainable is True:
+    for _, v in sub_Params.iteritems():
+        if getattr(v, 'trainable', True) is True:
             thisModule.trainable_weights.append(v)
         else:
             thisModule.non_trainable_weights.append(v)
     
 
 def update_or_init_params(tparams=None, params=None, tmp_params=None):
+    
     # we need to make sure tmp_params.trainable is passed through.
     tmp_params_keys = tmp_params.keys()
     if params is not None and set(tmp_params_keys).issubset(params.keys()):
@@ -203,14 +147,15 @@ def update_or_init_params(tparams=None, params=None, tmp_params=None):
             # if tparams does not has all the keys, it means we need to initlize params and then tparams
             tparams = update_tparams(tparams, tmp_params)
             if params is not None:
-               for k,v in tmp_params.iteritems():
-                  params[k] = v
+                for k,v in tmp_params.iteritems():
+                    params[k] = v
     return tparams, params
 
 def get_layer_identifier(prefix):
-        return 'layer_' + prefix
+    return 'layer_' + prefix
+
 def get_module_identifier(prefix):
-        return 'module_' + prefix
+    return 'module_' + prefix
         
 class obj(object):
     pass
@@ -218,6 +163,7 @@ class obj(object):
 def init_LayerInfo(options, name):
     if not name  in options:
         thisModule = obj()
+        thisModule.build = False
         thisModule.trainable_weights = []
         thisModule.non_trainable_weights = []
         thisModule.regularizers = []
@@ -229,14 +175,25 @@ def init_LayerInfo(options, name):
 def init_ModuleInfo(options, name):
     if not name  in options:
         thisModule = obj()
+        thisModule.build = False
         thisModule.trainable_weights = []
         thisModule.non_trainable_weights = []
         thisModule.regularizers = []
         thisModule.constraints = []
         thisModule.containers = []
+        thisModule.fathers = []
         options[name] = thisModule
     return options
 
+def build_or_not(module_identifier, options):
+    '''To decide do you wanna build this module'''
+    
+    if not module_identifier in options:
+        return True
+    else:
+        thisModule = options[module_identifier]
+        return not thisModule.build
+        
 def update_father_module(options,belonging_Module, module_identifier):
     '''
     we need to update the father module which contains this layer based on the information
@@ -260,6 +217,9 @@ def update_father_module(options,belonging_Module, module_identifier):
         return options 
 
 def get_subdict_prefix(tparams, prefixlist=None):
+    ''' 
+    this function is used to substract the param dictioary based on the list of prefixlist.
+    '''
     if not isinstance(prefixlist, list):
         prefixlist = [prefixlist]
     prefixlist = tuple(prefixlist)
@@ -329,3 +289,35 @@ def weighted_objective(fn):
 import re
 def split_words(words):
     return re.findall(r'\w+|\S+', words)
+
+# The following functions are for 
+def slice_tensor(x, n, dim):
+    if T.ndim(x) == 3:
+        return x[:, :, n*dim:(n+1)*dim]
+    elif T.ndim(x) == 2:
+            return x[:, n*dim:(n+1)*dim]
+    return x[n*dim:(n+1)*dim]
+
+def read( w, M):
+    return (w[:, :, None]*M).sum(axis=1)
+
+def get_content_w( beta, k, M):
+    num = beta[:, None] * cosine_distance(M, k)
+    return T.softmax(num)
+
+def get_location_w(g, s, C, gamma, wc, w_tm1):
+    wg = g[:, None] * wc + (1-g[:, None])*w_tm1
+    Cs = (C[None, :, :, :] * wg[:, None, None, :]).sum(axis=3)
+    wtilda = (Cs * s[:, :, None]).sum(axis=1)
+    wout = renorm(wtilda ** gamma[:, None])
+    return wout
+
+def get_controller_output(h, W_k, b_k, W_c, b_c, W_s, b_s, k_activ = T.tanh):
+    k = k_activ(T.dot(h, W_k) + b_k)  # + 1e-6
+    #k = theano.printing.Print('[Debug] k shape is: ', attrs=("shape",))(k)
+    c = T.dot(h, W_c) + b_c
+    beta = T.softplus(c[:, 0]) + 1e-4
+    g = T.sigmoid(c[:, 1])
+    gamma = T.softplus(c[:, 2]) + 1.0001
+    s = T.softmax(T.dot(h, W_s) + b_s)
+    return k, beta, g, gamma, s

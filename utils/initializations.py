@@ -50,13 +50,20 @@ def norm_weight(shape, scale=0.01, ortho=True, **kwargs):
     """
     Random weights drawn from a Gaussian
     """
-    nin,nout = shape[0], shape[1]
+    if len(shape) == 2:
+       nin,nout = shape[0], shape[1]
+    elif len(shape) == 1:
+       nin = shape[0]
+       nout = 1
+       
     if nout is None:
         nout = nin
     if nout == nin and ortho:
         W = ortho_weight((nin,nin))
     else:
         W = scale * np.random.randn(nin, nout)
+    if len(shape) == 1:
+        W = np.reshape(W, shape)
     return W.astype('float32')
     
 def uniform(shape, scale=0.05, name=None,symbolic=True, **kwargs):

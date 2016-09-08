@@ -5,10 +5,10 @@ be modified to coco/flickr30k/flickr8k
 import argparse
 import os
 import sys
-#os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_compile,optimizer=None,force_device=True, exception_verbosity=high,allow_gc=False'
-os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_run,force_device=True, allow_gc=True'
+os.environ['THEANO_FLAGS'] = 'device=gpu,optimizer=None,force_device=True, exception_verbosity=high,allow_gc=False'
+#os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_run,force_device=True, allow_gc=True, exception_verbosity=high'
 os.environ['debug_mode'] =  'False'
-os.environ['homogeneous_data'] = 'True'
+os.environ['homogeneous_data'] = 'False'
 
 CopyRoot  = os.path.join('..','..','..')
 projroot = os.path.join('..')
@@ -73,7 +73,7 @@ def main(params):
                            
     print "Final cost: {:.2f}".format(validerr.mean())
 
-
+dataset = "flickr30k"
 if __name__ == "__main__":
     # These defaults should more or less reproduce the soft
     # alignment model for the MS COCO dataset
@@ -84,46 +84,91 @@ if __name__ == "__main__":
     data_path = os.path.join(dataroot,'TrainingData','flickr30k')
     saveto = os.path.join(modelfolder, "my_caption_model.npz")
     
-    defaults = {"saveto": saveto,
+    defaults = {#"saveto": saveto,
+#                "attn_type": "dynamic" ,#"dynamic",
+#                #"attn_type": "deterministic" ,#"dynamic",
+#                "addressing": "ntm",
+#                "dim_word": 512,
+#                "ctx_dim": 512,
+#                "proj_ctx_dim": 512,
+#                "dim": 1800,
+#                "shift_range":3,
+#                "n_layers_att": 2,
+#                "n_layers_out": 1,
+#                "n_layers_lstm": 1,
+#                "n_layers_init": 2,
+#                "n_words": 10000,
+#                "lstm_encoder": False,
+#                "decay_c": 0.,
+#                "alpha_c": 1.,
+#                "prev2out": True,
+#                "ctx2out": True,
+#                "lrate": 0.01,
+#                "optimizer": "adam", #RMSprop
+#                "selector": True,
+#                "use_dropout": 0.5,
+#                "lstm_dropout": 0,
+#                "save_per_epoch": False,
+#                "reload": False,
+#                "valid_batch_size":2,
+#                "patience":10,
+#                "maxlen":100,
+#                "batch_size":64,
+#                "validFreq":100,
+#                "dispFreq":100,
+#                "saveFreq":100,
+#                "sampleFreq":100,
+#                "dataset": "flickr30k",
+#                "data_path" : data_path,
+#                'print_training': True ,
+#                'print_validation': False,
+#                 'clipnorm': 0,
+#                  'clipvalue':0
+               "saveto": saveto,
                 "attn_type": "dynamic" ,#"dynamic",
-                #"attn_type": "deterministic" ,#"dynamic",
-                "addressing": "ntm",
-                "dim_word": 512,
+                #"attn_type": "dynamic" ,#"dynamic",
+                "addressing": "softmax",
+                #"attn_type": "stochastic",
+                "dim_word": 64,
+                "dim": 128,
                 "ctx_dim": 512,
-                "proj_ctx_dim": 512,
-                "dim": 1800,
+                'atten_num' : 196,
+                "project_context": False,
+                "proj_ctx_dim": 512,      
                 "shift_range":3,
-                "n_layers_att": 2,
+                "n_layers_att": 1,
                 "n_layers_out": 1,
                 "n_layers_lstm": 1,
-                "n_layers_init": 2,
-                "n_words": 10000,
+                "n_layers_init": 1,
+                "n_words": 50,
                 "lstm_encoder": False,
-                "decay_c": 0.,
-                "alpha_c": 1.,
+                "decay_c": 1e-8,
+                "alpha_c": 0.05,
                 "prev2out": True,
                 "ctx2out": True,
                 "lrate": 0.01,
                 "optimizer": "adam", #RMSprop
                 "selector": True,
-                "use_dropout": 0.5,
+                "use_dropout": 0,
                 "lstm_dropout": 0,
                 "save_per_epoch": False,
-                "reload": False,
-                "valid_batch_size":2,
-                "patience":10,
-                "maxlen":100,
-                "batch_size":64,
+                "reload": False, 
+                "valid_batch_size":1,
+                "patience":400,
+                "maxlen":400,
+                "batch_size": 1,
                 "validFreq":100,
                 "dispFreq":100,
                 "saveFreq":100,
                 "sampleFreq":100,
-                "dataset": "flickr30k",
+                "dataset": dataset,
                 "data_path" : data_path,
-                'print_training': True ,
-                'print_validation': False,
-                 'clipnorm': 0,
-                 'clipvalue':0
+                'online_feature':  False,
+                'hard_sampling' : True,
+                'print_training': False ,
+                'print_validation': True,
+                "clipnorm":0.1,
+	            "clipvalue":0 
                  } 
     # get updates from command line
     args = parser.parse_args()

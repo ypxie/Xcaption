@@ -2,6 +2,7 @@
 #from numpy import *
 #from theano.tensor import *
 import os
+
 if 'debug_mode' not in os.environ:
     os.environ['debug_mode'] = 'False'
 

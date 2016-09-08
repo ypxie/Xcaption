@@ -1,7 +1,6 @@
 from numpy import *
 import numpy as np
 
-from theano.scan_module import scan_utils
 import logging
 from collections import OrderedDict
 from backend.scan_utils import *
@@ -118,38 +117,6 @@ def set_value(x, value):
     x[:] = value
     return variable(x)
     
-
-def RandomStreams(seed = 1234):
-    a = np.random
-    a.seed(seed)
-    return a
-
-def normal(shape=None, mean=0.0, std=1.0, dtype=_FLOATX, seed=None,rng = None):
-    if rng is None:
-        seed = np.random.randint(1, 10e6)
-        rng = RandomStreams(seed=seed)
-    if shape is None:
-        shape = (1)
-    return rng.normal(avg=mean, std=std, size=shape).astype(dtype)
-
-
-def uniform(shape=None, low=0.0, high=1.0, dtype=_FLOATX, rng=None):
-    if rng is None:
-        seed = np.random.randint(1, 10e6)
-        rng = RandomStreams(seed=seed)
-    if shape is None:
-        shape = (1)
-    return rng.uniform(low=low, high=high, size = shape).astype(dtype)
-
-
-def binomial(shape=None, p=0.0, n =1, dtype=_FLOATX, rng=None):
-    if rng is None:
-        seed = np.random.randint(1, 10e6)
-        rng = RandomStreams(seed=seed)
-    if shape is None:
-        shape = p.shape
-    return rng.binomial(n=n, p=p,size= shape).astype(dtype)
-    
 def concatenate(tensors, axis=-1):
     output = npwrapper(np.concatenate(tensors, axis=axis))
     if hasattr(tensors[0], '_keras_shape'):
@@ -172,15 +139,68 @@ def concatenate(tensors, axis=-1):
             output._keras_shape = tuple(o_ks)
     return output
     
-def multinomial(shape=None, p=0.0, n =1, dtype=_FLOATX, rng=None):
+def RandomStreams(seed = 1234):
+    a = np.random
+    a.seed(seed)
+    return a
+
+def normal(shape=None, mean=0.0, std=1.0, dtype=_FLOATX, seed=None,rng = None):
     if rng is None:
         seed = np.random.randint(1, 10e6)
         rng = RandomStreams(seed=seed)
     if shape is None:
-        shape = p.shape
-    return rng.binomial(size= shape,n=n, p=p).astype(dtype)
-    
+        shape = ()
+    return rng.normal(loc =mean, scale=std, size=shape).astype(dtype)
 
+
+def uniform(shape=None, low=0.0, high=1.0, dtype=_FLOATX, rng=None):
+    if rng is None:
+        seed = np.random.randint(1, 10e6)
+        rng = RandomStreams(seed=seed)
+    if shape is None:
+        shape = ()
+    return rng.uniform(low=low, high=high, size = shape).astype(dtype)
+
+
+def binomial(shape=None, p=0.0, n =1, dtype=_FLOATX, rng=None):
+    if rng is None:
+        seed = np.random.randint(1, 10e6)
+        rng = RandomStreams(seed=seed)
+    if shape is None:
+        shape = ()
+    return rng.binomial(n=n, p=p, size= shape).astype(dtype)
+
+    
+def multinomial(shape=None, pvals=0.0, n =1, dtype=_FLOATX, rng=None):
+    '''
+    pvals: should be n1*n2*...*len(p)
+    shape should be n1*n2*...
+    Totally mimic theano mrg_multinomial behavior.
+    '''
+    pvals = np.asarray(pvals)
+    if rng is None:
+        seed = np.random.randint(1, 10e6)
+        rng = RandomStreams(seed=seed)
+    if shape is None:
+        shape = ()
+    if len(shape) == 1:
+        return rng.multinomial(size= shape,n=n, pvals=pvals.flatten()).astype(dtype)
+    else:
+        res_shape = shape + (pvals.shape[-1],)
+        flat_results = np.zeros(res_shape, dtype).reshape((-1, pvals.shape[-1]))
+        flat_pvals   = pvals.reshape((-1, pvals.shape[-1]))
+        for ind in xrange(flat_results.shape[0]):
+            if ind <= flat_pvals.shape[0]:
+                this_flat_p = flat_pvals[ind]
+            else:
+                this_flat_p = pvals.flatten()
+            flat_results[ind] = rng.multinomial(size= (1,),n=n, pvals= this_flat_p).astype(dtype)
+        
+        results = flat_results.reshape(res_shape)
+        return results
+
+
+        
 
 def matrix(name='x', dtype='float32', shape = None):
     x= np.zeros(shape).astype(dtype)
@@ -203,7 +223,7 @@ def assign_subtensor(dest, source, dest_slice):
     return dest    
 
 
-def alloc(value, *shape):
+def alloc(value, shape,broadcastable =True):
     a = zeros(tuple(shape)) + value
     return variable(a)
 
@@ -212,10 +232,10 @@ def unbroadcast(x, *axes):
 def addbroadcast(x, *axes):
 	return x
 
-def expand_dims(x, dim=-1):
+def expand_dims(x, dim=-1, broadcastable=True):
     '''Add a 1-sized dimension at index "dim".
     '''
-    return np.expand_dims(x, axis=dim)
+    return npwrapper(np.expand_dims(x, axis=dim))
 
 def shape_padleft(t, n_ones=1):
     pattern = [1] * n_ones + [t.shape[i] for i in xrange(t.ndim)]
@@ -449,7 +469,182 @@ def l2_normalize(x, axis):
     norm = np.sqrt(np.sum(np.square(x), axis=axis, keepdims=True))
     return x / norm
 
+# CONVOLUTIONS
+def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
+           image_shape=None, filter_shape=None,dilated = 0, rate = 1,**kwargs):
+    '''
+    border_mode: string, "same" or "valid".
+    '''
+    if dim_ordering not in {'th', 'tf'}:
+        raise Exception('Unknown dim_ordering ' + str(dim_ordering))
+    if dilated == 0:
+        rate = [rate, rate]
 
+    if dim_ordering == 'tf':
+        # TF uses the last dimension as channel dimension,
+        # instead of the 2nd one.
+        # TH input shape: (samples, input_depth, rows, cols)
+        # TF input shape: (samples, rows, cols, input_depth)
+        # TH kernel shape: (depth, input_depth, rows, cols)
+        # TF kernel shape: (rows, cols, input_depth, depth)
+        x = x.transpose((0, 3, 1, 2))
+        kernel = kernel.transpose((3, 2, 0, 1))
+        if image_shape:
+            image_shape = (image_shape[0], image_shape[3],
+                           image_shape[1], image_shape[2])
+        if filter_shape:
+            filter_shape = (filter_shape[3], filter_shape[2],
+                            filter_shape[0], filter_shape[1])
+
+    if border_mode == 'same':
+        th_border_mode = 'half'
+        np_kernel = kernel.eval()
+    elif border_mode == 'valid':
+        th_border_mode = 'valid'
+    else:
+        raise Exception('Border mode not supported: ' + str(border_mode))
+
+    # Theano might not accept long type
+    def int_or_none(value):
+        try:
+            return int(value)
+        except TypeError:
+            return None
+
+    if image_shape is not None:
+        image_shape = tuple(int_or_none(v) for v in image_shape)
+
+    if filter_shape is not None:
+        filter_shape = tuple(int_or_none(v) for v in filter_shape)
+
+    conv_out = conv2d(x, kernel,
+                             border_mode=th_border_mode,
+                             subsample=strides, filters_dilations = rate,
+                             input_shape=image_shape,
+                             filter_shape=filter_shape)
+
+    if border_mode == 'same':
+        if np_kernel.shape[2] % 2 == 0:
+            conv_out = conv_out[:, :, :(x.shape[2] + strides[0] - 1) // strides[0], :]
+        if np_kernel.shape[3] % 2 == 0:
+            conv_out = conv_out[:, :, :, :(x.shape[3] + strides[1] - 1) // strides[1]]
+
+    if dim_ordering == 'tf':
+        conv_out = conv_out.transpose((0, 2, 3, 1))
+    return conv_out
+
+def pool2d(x, pool_size, strides=(1, 1), border_mode='valid',
+           dim_ordering='th', pool_mode='max'):
+    if border_mode == 'same':
+        w_pad = pool_size[0] - 2 if pool_size[0] % 2 == 1 else pool_size[0] - 1
+        h_pad = pool_size[1] - 2 if pool_size[1] % 2 == 1 else pool_size[1] - 1
+        padding = (w_pad, h_pad)
+    elif border_mode == 'valid':
+        padding = (0, 0)
+    else:
+        raise Exception('Invalid border mode: ' + str(border_mode))
+
+    if dim_ordering not in {'th', 'tf'}:
+        raise Exception('Unknown dim_ordering ' + str(dim_ordering))
+
+    if dim_ordering == 'tf':
+        x = x.transpose((0, 3, 1, 2))
+
+    if pool_mode == 'max':
+        pool_out = np_pool_2d(x, ds=pool_size, st=strides,
+                                ignore_border=True,
+                                padding=padding,
+                                mode='max')
+    elif pool_mode == 'avg':
+        pool_out = np_pool_2d(x, ds=pool_size, st=strides,
+                                ignore_border=True,
+                                padding=padding,
+                                mode='average_exc_pad')
+    else:
+        raise Exception('Invalid pooling mode: ' + str(pool_mode))
+
+    if border_mode == 'same':
+        expected_width = (x.shape[2] + strides[0] - 1) // strides[0]
+        expected_height = (x.shape[3] + strides[1] - 1) // strides[1]
+
+        pool_out = pool_out[:, :,
+                            : expected_width,
+                            : expected_height]
+
+    if dim_ordering == 'tf':
+        pool_out = pool_out.transpose((0, 2, 3, 1))
+    return pool_out
+
+
+def spatial_2d_cropping_4specify(x, cropping=(1, 1, 1, 1), dim_ordering='th'):
+    '''croping the 2nd and 3rd dimensions of a 4D tensor
+     cropping[0], and cropping[1] are for left part for row and cols
+     cropping[2]  and cropping[3] are for right part for row and col
+    '''
+    input_shape = list(x.shape)
+    cropping = list(cropping)
+    if dim_ordering == 'th':
+        #input_shape[2] = theano.printing.Print("this is input_shape[2]: " )(input_shape[2])
+        #cropping[0] = theano.printing.Print("this is cropping[0]: " )(cropping[0])
+        #cropping[2] = theano.printing.Print("this is cropping[2]: " )(cropping[2])
+
+        output_shape = [input_shape[0],
+                        input_shape[1],
+                        input_shape[2] -     cropping[0] -  cropping[2],
+                        input_shape[3] -     cropping[1] -  cropping[3]]
+
+        output = T.zeros(output_shape)
+        indices = (slice(None),
+                   slice(None),
+                   slice(cropping[0], output_shape[2] + cropping[0]),
+                   slice(cropping[1], output_shape[3] + cropping[1]))
+
+    elif dim_ordering == 'tf':
+        output_shape = (input_shape[0],
+                        input_shape[1]  -     cropping[0] -  cropping[2],
+                        input_shape[2]  -     cropping[1] -  cropping[3],
+                        input_shape[3])
+        output = T.zeros(output_shape)
+        indices = (slice(None),
+                   slice(cropping[0], output_shape[1] + cropping[0]),
+                   slice(cropping[1], output_shape[2] + cropping[1]),
+                   slice(None))
+    else:
+        raise Exception('Invalid dim_ordering: ' + dim_ordering)
+    return set_subtensor(output[0::,0::,0::,0::], x[indices])
+
+
+def spatial_2d_padding_4specify(x, padding=(1, 1,1,1), dim_ordering='th'):
+    '''Pad the 2nd and 3rd dimensions of a 4D tensor
+    with "padding[0]" and "padding[1]" (resp.) zeros left and right.
+    padding[0], and padding[1] are for left part for row and cols
+    padding[2]  and padding[3] are for right part for row and col
+    '''
+    input_shape = x.shape
+    if dim_ordering == 'th':
+        output_shape = (input_shape[0],
+                        input_shape[1],
+                        input_shape[2] +     padding[0] + padding[2],
+                        input_shape[3] +     padding[1] + padding[3])
+        output = T.zeros(output_shape)
+        indices = (slice(None),
+                   slice(None),
+                   slice(padding[0], input_shape[2] + padding[0]),
+                   slice(padding[1], input_shape[3] + padding[1]))
+
+    elif dim_ordering == 'tf':
+        output_shape = (input_shape[0],
+                        input_shape[1] + padding[0] + padding[2],
+                        input_shape[2] + padding[1] + padding[3],
+                        input_shape[3])
+        output = T.zeros(output_shape)
+        indices = (slice(None),
+                   slice(padding[0], input_shape[1] + padding[0]),
+                   slice(padding[1], input_shape[2] + padding[1]),
+                   slice(None))
+    else:
+        raise Exception('Invalid dim_ordering: ' + dim_ordering)
+    return set_subtensor(output[indices], x)
     
 def scan(fn,
          sequences=None,
@@ -612,7 +807,7 @@ def scan(fn,
     for seq in scan_seqs:
         lengths_vec.append(seq.shape[0])
 
-    if not scan_utils.isNaN_or_Inf_or_None(n_steps):
+    if not isNaN_or_Inf_or_None(n_steps):
         # ^ N_steps should also be considered
         lengths_vec.append(n_steps)
 
@@ -625,7 +820,7 @@ def scan(fn,
 
     # If the user has provided the number of steps, do that regardless ( and
     # raise an error if the sequences are not long enough )
-    if scan_utils.isNaN_or_Inf_or_None(n_steps):
+    if isNaN_or_Inf_or_None(n_steps):
         actual_n_steps = lengths_vec[0]
         for contestant in lengths_vec[1:]:
             actual_n_steps = np.minimum(actual_n_steps, contestant)

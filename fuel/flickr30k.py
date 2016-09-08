@@ -5,8 +5,9 @@ import sys
 import time
 from collections import OrderedDict
 import numpy
+from backend.export import npwrapper
 
-def prepare_data(caps, features, worddict, maxlen=None, n_words=10000, zero_pad=False):
+def prepare_data(caps, features, worddict, maxlen=None, n_words=10000, zero_pad=False, **kwargs):
     # x: a list of sentences
     seqs = []
     feat_list = []
@@ -50,13 +51,13 @@ def prepare_data(caps, features, worddict, maxlen=None, n_words=10000, zero_pad=
         x[:lengths[idx],idx] = s
         x_mask[:lengths[idx]+1,idx] = 1.
 
-    return x, x_mask, y
+    return npwrapper(x), npwrapper(x_mask), npwrapper(y)
 
 
 
 
     
-def load_data(load_train=True, load_dev=True, load_test=True, path= '../Data/TrainingData/flickr30k'):
+def load_data(load_train=True, load_dev=True, load_test=True, root_path= '../Data/TrainingData/flickr30k',**kwargs):
     ''' Loads the dataset
 
     :type dataset: string
@@ -68,7 +69,7 @@ def load_data(load_train=True, load_dev=True, load_test=True, path= '../Data/Tra
     #############
     print '... loading data'
     from collections import OrderedDict
-    
+    path = root_path
     train_cap = OrderedDict()
     if load_train:
         with open(os.path.join(path,'flicker_30k_align.train.pkl'), 'rb') as f:
@@ -97,7 +98,6 @@ def load_data(load_train=True, load_dev=True, load_test=True, path= '../Data/Tra
     
     #with open(os.path.join(path,'dictionary_old.pkl'), 'rb') as f:
     #    worddict = pkl.load(f)
-    
     
     
     worddict = OrderedDict()  

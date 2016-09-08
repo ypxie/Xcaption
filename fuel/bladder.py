@@ -5,8 +5,8 @@ from preprocessing.sequence import pad_sequences
 import numpy as np
 import re
 from Core.utils_func import split_words
-from utils.local_utils import imread
-
+from utils.local_utils import *
+import json
 from backend.export import npwrapper
 from fuel.Extractor import get_cnn_img
 
@@ -48,12 +48,15 @@ def prepare_data(caps, features, worddict, maxlen=None, n_words=1000, zero_pad=F
             feat_pad[:,:-1,:] = feat
             feat = feat_pad
     else:
-        shape = (3, 224,224)
+        dest_shape = (224,224,3)
+        shape = (3,224,224)
         feat = np.zeros((len(feat_list),) + shape).astype('float32')
+       
         for idx, ff in enumerate(feat_list):
             #y[idx,:] = np.array(ff)
-            feat[idx,:] = get_cnn_img(ff,shape,local_norm=True)
-
+            ff = ff[0]
+            feat[idx,:] = get_cnn_img(ff,dest_shape,local_norm=True)
+        #print feat.shape
     n_samples = len(seqs)
     maxlen = np.max(lengths)+1
     #because we need to make it has one end of sentence in the end, so one more symbol.
@@ -126,16 +129,19 @@ def load_data(load_train=True, load_dev= True, load_test= False, root_path='../D
             # in this case, the train_feat will be absolute image path
             feat_root_path = img_root_path
             trainingSplitFile = os.path.join(root_path, 'train_list.json')
+            with open(trainingSplitFile) as data_file:    
+                trainingSplitDict = json.load(data_file)
+            
             train_file_list =  trainingSplitDict['img']
             train_file_list = train_cap[2]
 
             # with open(trainingSplitFile) as data_file:    
             #     trainingSplitDict = json.load(data_file)
             # train_label_list = trainingSplitDict['label']
-            # train_feat = []
+            train_feat = []
             for cap_tuple in returned_train_cap:
                 name = cap_tuple[2]
-                train_feat.append(os.path(img_root_path, name+img_ext))
+                train_feat.append(os.path.join(img_root_path, name+img_ext))
         
         train = (returned_train_cap, train_feat)
     else:
@@ -160,11 +166,10 @@ def load_data(load_train=True, load_dev= True, load_test= False, root_path='../D
             # with open(testingSplitFile) as data_file:    
             #     testingSplitDict = json.load(data_file)
             # test_file_list =  testingSplitDict['img']
-            # test_feat = []
-            
+            test_feat = []
             for cap_tuple in returned_test_cap:
                 name = cap_tuple[2]
-                train_feat.append(os.path(img_root_path, name+img_ext))
+                test_feat.append(os.path.join(img_root_path, name+img_ext))
 
         test = (returned_test_cap, test_feat)
 
@@ -176,6 +181,7 @@ def load_data(load_train=True, load_dev= True, load_test= False, root_path='../D
         with open(os.path.join(cap_root_path , 'bladder_align_test_cap.pkl'), 'rb') as ft_cap:
             valid_cap = pkl.load(ft_cap)
         returned_valid_cap = valid_cap #group_cap(valid_cap)
+        
         if online_feature == False:
             feat_root_path = cap_root_path
             valid_feat = sparse.csr_matrix((0, feat_len))
@@ -190,10 +196,10 @@ def load_data(load_train=True, load_dev= True, load_test= False, root_path='../D
             # with open(validSplitFile) as data_file:    
             #     validSplitDict = json.load(data_file)
             # valid_file_list =  validSplitDict['img']
-            # valid_feat = []
-            for cap_tuple in returned_test_cap:
+            valid_feat = []
+            for cap_tuple in returned_valid_cap:
                 name = cap_tuple[2]
-                train_feat.append(os.path(img_root_path, name+img_ext))
+                valid_feat.append(os.path.join(img_root_path, name+img_ext))
 
 
         valid = (returned_valid_cap, valid_feat)

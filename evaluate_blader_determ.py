@@ -7,7 +7,7 @@ import os
 import sys
 #os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_compile,optimizer=None,force_device=True, exception_verbosity=high,allow_gc=False'
 os.environ['THEANO_FLAGS'] = 'device=gpu2, optimizer=fast_run,force_device=False, exception_verbosity=high,allow_gc=True'
-os.environ['debug_mode'] = 'True'
+os.environ['debug_mode'] = 'False'
 os.environ['homogeneous_data'] = 'False'
 
 from Core.train import train
@@ -43,17 +43,19 @@ if __name__ == "__main__":
                 #"attn_type": "dynamic" ,#"dynamic",
                 "attn_type": "deterministic" ,#"dynamic",
                 #"addressing": "ntm",
-                "dim_word": 128,
-                "ctx_dim": 512,
-                "proj_ctx_dim": 512,
+                "dim_word": 64,
                 "dim": 128,
+                "ctx_dim": 512,
+                'atten_num' : 196,
+                "project_context": False,
+                "proj_ctx_dim": 512,      
                 "shift_range":3,
                 "n_layers_att": 1,
                 "n_layers_out": 1,
                 "n_layers_lstm": 1,
                 "n_layers_init": 1,
                 "n_words": 50,
-                "lstm_encoder": True,
+                "lstm_encoder": False,
                 "decay_c": 1e-8,
                 "alpha_c": 0.05,
                 "prev2out": True,
@@ -64,11 +66,11 @@ if __name__ == "__main__":
                 "use_dropout": 0.25,
                 "lstm_dropout": 0.25,
                 "save_per_epoch": False,
-                "reload": True, 
+                "reload": False, 
                 "valid_batch_size":2,
                 "patience":400,
                 "maxlen":400,
-                "batch_size": 32,
+                "batch_size": 16,
                 "validFreq":100,
                 "dispFreq":100,
                 "saveFreq":100,
@@ -78,7 +80,7 @@ if __name__ == "__main__":
                 'print_training': False ,
                 'print_validation': True,
                 "clipnorm":1000,
-	            "clipvalue":0 
+	        "clipvalue":0 
                  } 
     # get updates from command line
     args = parser.parse_args()

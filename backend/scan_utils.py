@@ -42,6 +42,31 @@ def expand_empty(tensor_var, size):
     empty[:shapes[0]] = tensor_var
     #empty.tag.nan_guard_mode_check = False
     return empty
+    
+
+def isNaN_or_Inf_or_None(x):
+    isNone = x is None
+    try:
+        isNaN = np.isnan(x)
+        isInf = np.isinf(x)
+        isStr = isinstance(x, string_types)
+    except Exception:
+        isNaN = False
+        isInf = False
+        isStr = False
+    if not isNaN and not isInf:
+        try:
+            isInf = np.isinf(x)
+            isNaN = np.isnan(x)
+        except Exception:
+            isNaN = False
+            isInf = False
+    if isinstance(x, string_types):
+        isStr = True
+    else:
+        isStr = False
+    return isNone or isNaN or isInf or isStr
+    
 
 class until(object):
     """

@@ -167,6 +167,9 @@ class ListExtractor(object):
         return self.TrainingMatinfo    
 
 def get_cnn_img(thispath, shape, local_norm):
+    ''' 
+    shape should be in (channel, row, col) format.    
+    '''
     img = imread(thispath)
     img  = pre_process_img(img, yuv = False,norm= local_norm)
     img =  imresize_shape(img,shape)

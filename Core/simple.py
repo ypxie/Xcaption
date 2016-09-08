@@ -6,7 +6,7 @@ import numpy as np
 from utils import activations, initializations, regularizers
 
 # dropout in theano
-def dropout_layer(state_before, rng =None,dropoutrate=0.5):
+def dropout_layer(rng =None,dropoutrate=0.5):
     """
     tensor switch is like an if statement that checks the
     value of the theano shared variable (use_noise), before
@@ -14,19 +14,20 @@ def dropout_layer(state_before, rng =None,dropoutrate=0.5):
     computing the appropriate activation. During training/testing
     use_noise is toggled on and off.
     """
-    if 0. < dropoutrate < 1.:
-        retain_p = 1. - dropoutrate
-        B = T.binomial(shape = state_before.shape, p=retain_p, n=1,dtype=state_before.dtype,rng = rng) * (1. / retain_p)
-        proj = T.in_train_phase(state_before * B, state_before)
-    if hasattr(state_before,'_keras_shape'):
-        proj._keras_shape = state_before._keras_shape
-    return proj
-    # proj = T.switch(use_noise,
-    #                      state_before *
-    #                      T.binomial(shape = state_before.shape, p=p, n=1,dtype=state_before.dtype,rng = rng),
-    #                      state_before * p)
-    # return proj
-
+    def func(state_before):
+        if 0. < dropoutrate < 1.:
+            retain_p = 1. - dropoutrate
+            B = T.binomial(shape = state_before.shape, p=retain_p, n=1,dtype=state_before.dtype,rng = rng) * (1. / retain_p)
+            proj = T.in_train_phase(state_before * B, state_before)
+        if hasattr(state_before,'_keras_shape'):
+            proj._keras_shape = state_before._keras_shape
+        return proj
+        # proj = T.switch(use_noise,
+        #                      state_before *
+        #                      T.binomial(shape = state_before.shape, p=p, n=1,dtype=state_before.dtype,rng = rng),
+        #                      state_before * p)
+        # return proj
+    return func
     
 # ----------------------embeding layer----------------------    
 def init_embeding(options, params, prefix='embeding',input_dim=None,
@@ -100,7 +101,7 @@ def embeding_layer(tparams, x, options, prefix='embeding',dropoutrate=None,
             comp = x[:,:,:,None]
         else:
             raise Exception('dimention {} is not supported yet!'.format(T.ndim(x))  )
-        emb = T.switch(T.equal(comp, specifier), T.alloc(filled_value,*filled_shape),
+        emb = T.switch(T.equal(comp, specifier), T.alloc(filled_value, filled_shape, broadcastable = True),
                             W[x])
     else:
         emb = W[x]
@@ -109,42 +110,38 @@ def embeding_layer(tparams, x, options, prefix='embeding',dropoutrate=None,
     emb._keras_shape = tuple(x._keras_shape) + (output_dim,)
     return emb
 
-def Embedding(tparams,  x, options, params = None, prefix='embeding',input_dim=None,
+def Embedding(options, prefix='embeding',input_dim=None,
               output_dim=None, init='norm_weight',trainable=True, dropoutrate=None,
               specifier=None,filled_value=0., belonging_Module=None,**kwargs):
     '''
     params > tparams > empty
     if params covers all the weights_keys. use params to update tparams.
     '''
-    module_identifier = 'layer_' + prefix
-    init_LayerInfo(options, name = module_identifier)
     if not belonging_Module:
         belonging_Module = options['belonging_Module'] if 'belonging_Module' in options else None
-    else:
-        belonging_Module = belonging_Module
-
-    input_shape = x._keras_shape
-    tmp_params = OrderedDict()
-    tmp_params = init_embeding(options, tmp_params, prefix=prefix,input_dim=input_dim,
-                              output_dim=output_dim, init=init,trainable=trainable)
-    update_or_init_params(tparams, params, tmp_params=tmp_params)
-    
-    output = embeding_layer(tparams, x,options, dropoutrate=dropoutrate,
-                            specifier=specifier,filled_value=filled_value,**kwargs)
-
-    updateModuleInfo(options, tparams, prefix, module_identifier)
-    update_father_module(options,belonging_Module, module_identifier)
-    return output
-
+    def func(inputs, tparams, options, params = None):
+        tmp_params = OrderedDict()
+        module_identifier = get_layer_identifier(prefix)
+        if build_or_not(module_identifier, options):
+            init_LayerInfo(options, name = module_identifier)
+            input_shape = inputs._keras_shape
+            
+            tmp_params = init_embeding(options, tmp_params, prefix=prefix,input_dim=input_dim,
+                                    output_dim=output_dim, init=init,trainable=trainable)
+        update_or_init_params(tparams, params, tmp_params=tmp_params)
+        
+        output = embeding_layer(tparams, inputs,options, dropoutrate=dropoutrate,
+                                specifier=specifier,filled_value=filled_value,**kwargs)
+        if build_or_not(module_identifier, options):                        
+            updateModuleInfo(options, tparams, prefix, module_identifier)
+            update_father_module(options,belonging_Module, module_identifier)
+        return output
+    return func    
 # ----------------------fully connected layer----------------------    
 # feedforward layer: affine transformation + point-wise nonlinearity
 def init_fflayer(options, params, prefix='ff', nin=None, 
                  nout=None,init='norm_weight',trainable=True,**kwargs):
-    if nin is None:
-        nin = options['dim_proj']
-    if nout is None:
-        nout = options['dim_proj']
-
+    
     init = initializations.get(init)    
     params[get_name(prefix, 'W')] = npwrapper(init((nin, nout),scale=0.01,symbolic=False), trainable=trainable) 
     params[get_name(prefix, 'b')] = npwrapper(initializations.get('zero')((nout,),symbolic=False).astype('float32'), trainable=trainable) 
@@ -155,36 +152,51 @@ def fflayer(tparams, x, options, prefix='ff', activation='tanh', **kwargs):
     activation_func = activations.get(activation) 
     output = activation_func(T.dot(x, tparams[get_name(prefix,'W')])+tparams[get_name(prefix,'b')])
     if hasattr(x, '_keras_shape'):
-        output = T.add_keras_shape(output, x._keras_shape)
+        old_keras_shape = x._keras_shape
+        nw_ks  = old_keras_shape[0:-1] + (T.get_value(tparams[get_name(prefix,'W')]).shape[-1],)
+        output = T.add_keras_shape(output, nw_ks)
     return output
 
-def Dense(tparams, x,  options, params = None, prefix='ff', nin=None, nout=None,
-          init='norm_weight',trainable=True, activation='tanh',belonging_Module=None,**kwargs):
+def Dense(options, prefix='ff', nin=None, nout=None,
+          init='norm_weight',trainable=True, activation='tanh', belonging_Module=None,**kwargs):
     '''
     params > tparams > empty
     if params covers all the weights_keys. use params to update tparams.
     '''
-    if nin is None:
-        if not hasattr(x, '_keras_shape'):
-            raise Exception('Dense layer must have either nin or the input with _keras_shape')
-        else:
-            nin = x._keras_shape[-1]
-    
-    module_identifier = 'layer_' + prefix
-    init_LayerInfo(options, name = module_identifier)
     if not belonging_Module:
         belonging_Module = options['belonging_Module'] if 'belonging_Module' in options else None
-    else:
-        belonging_Module = belonging_Module
+    tmpDict = {'nin':nin}
+    def func(inputs, tparams, options, params = None):
+        if not hasattr(inputs, '_keras_shape'):
+            if tmpDict['nin'] is None:
+                raise Exception('Dense layer must have either nin or the input with _keras_shape')
+        else:
+            tmpDict['nin'] = inputs._keras_shape[-1]
         
-    tmp_params = OrderedDict()
-    tmp_params = init_fflayer(options, tmp_params, prefix=prefix, nin=nin, 
-                             nout=nout,init=init,trainable=trainable)
-    update_or_init_params(tparams, params, tmp_params=tmp_params)
-    
-    output = fflayer(tparams, x,options, prefix=prefix, activation= activation, **kwargs)
-    
-    updateModuleInfo(options, tparams, prefix, module_identifier)
-    update_father_module(options,belonging_Module, module_identifier)
+        tmp_params = OrderedDict()
+        module_identifier = get_layer_identifier(prefix)
 
-    return output
+        if build_or_not(module_identifier, options):
+            init_LayerInfo(options, name = module_identifier)
+            #print tmpDict['nin'], ',', nout
+            #print inputs._keras_shape
+            tmp_params = init_fflayer(options, tmp_params, prefix=prefix, nin=tmpDict['nin'], 
+                                    nout=nout,init=init,trainable=trainable, module_identifier = module_identifier)
+        update_or_init_params(tparams, params, tmp_params=tmp_params)
+            
+        output = fflayer(tparams, inputs, options, prefix=prefix, activation= activation, **kwargs)
+        if not hasattr(output, '_keras_shape'):
+            tensor_shape = [None for _ in range(T.ndim(output))]
+            tensor_shape[-1] = nout
+            output._keras_shape = tuple(tensor_shape)
+        else:
+            ks = list(output._keras_shape)
+            ks[-1] = nout
+            output._keras_shape = tuple(ks)
+         
+        if build_or_not(module_identifier, options):
+            updateModuleInfo(options, tparams, prefix, module_identifier)
+            update_father_module(options,belonging_Module, module_identifier)
+
+        return output
+    return func
