@@ -105,7 +105,7 @@ def pred_probs(f_log_probs, options, worddict, prepare_data, data, iterator, ver
                                      worddict,
                                      maxlen=None,
                                      n_words=options['n_words'],
-                                     online_feature=model_options['online_feature'])
+                                     online_feature=options['online_feature'])
         pred_probs = f_log_probs(x,mask,ctx,np.uint8(train))
 
         probs[valid_index] = pred_probs[:,None]
