@@ -16,7 +16,8 @@ Keras.egg-info
 # test-related
 .coverage
 .cache
-
+.ipython*
+*~
 # developer environments
 .idea
 
