@@ -7,7 +7,7 @@ import os
 import sys
 #hah
 #os.environ['THEANO_FLAGS'] = 'device=gpu, optimizer=fast_compile,optimizer=None,force_device=True, exception_verbosity=high,allow_gc=False'
-os.environ['THEANO_FLAGS'] = 'device=gpu2, optimizer=fast_run,force_device=False, exception_verbosity=high,allow_gc=True'
+os.environ['THEANO_FLAGS'] = 'device=gpu0, optimizer=fast_run,force_device=False, exception_verbosity=high,allow_gc=True'
 os.environ['debug_mode'] = 'False'
 os.environ['homogeneous_data'] = 'False'
 
@@ -25,7 +25,7 @@ dataset =  "bladder"
 modelfolder = os.path.join('..','Data','Model','bladder','dynamic_ntm')
 saveto = os.path.join(modelfolder, "my_caption_model.npz")
 if not os.path.exists(modelfolder):
-        os.makedirs(modelfolder)  
+    os.makedirs(modelfolder)  
         
 parser = argparse.ArgumentParser()
 #parser.add_argument("--attn_type",  default="deterministic",

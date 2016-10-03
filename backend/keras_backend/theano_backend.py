@@ -38,8 +38,13 @@ def learning_phase():
 def variable(value, dtype=_FLOATX, name=None):
     '''Instantiate a tensor variable.
     '''
+    broadcastable = getattr(value, 'broadcastable', None)
     value = np.asarray(value, dtype=dtype)
-    vv = theano.shared(value=value, name=name, strict=False)
+    #value = value.asdtype(dtype)
+    if broadcastable is not None:
+        vv = theano.shared(value=value, name=name, strict=False, broadcastable= broadcastable)
+    else:
+        vv = theano.shared(value=value, name=name, strict=False)
     vv._keras_shape = value.shape
     return vv
 
@@ -190,8 +195,12 @@ def dot(x, y):
         elif len(x_keras_shape) == 1 and len(y_keras_shape) == 1:
             output._keras_shape = ()
         else:
-            raise Exception('_keras_shape not defined for dot product of \
-                             input with one-dimension and other, please fix this')
+            if len(x_keras_shape) > 1 and len(y_keras_shape) == 1:
+                x_keras_shape.pop(-1)
+                output._keras_shape = tuple(x_keras_shape)
+            elif len(x_keras_shape) == 1 and len(y_keras_shape) > 1:
+                raise Exception('_keras_shape not defined for dot product of \
+                             input with first one-dimension and second larger than one, please fix this')
     return output
 
 
@@ -470,8 +479,8 @@ def concatenate(tensors, axis=-1):
 
 
 def reshape(x, shape):
+    '''If you use reshape, you better specify the _keras_shape by yourself.'''
     return T.reshape(x, shape)
-
 
 def permute_dimensions(x, pattern):
     '''Transpose dimensions.
@@ -964,7 +973,11 @@ def relu(x, alpha=0., max_value=None):
     
 
 def softmax(x):
-    output = T.nnet.softmax(x)
+    shape = x.shape
+    x_2d = T.reshape(x, (-1, shape[-1]))
+
+    output = T.nnet.softmax(x_2d)
+    output = T.reshape(output, shape)
     if hasattr(x,'_keras_shape'):
         output._keras_shape = x._keras_shape
     return output
@@ -1106,7 +1119,6 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
                              subsample=strides, filters_dilations = rate,
                              input_shape=image_shape,
                              filter_shape=filter_shape)
-
 
     if border_mode == 'same':
         if np_kernel.shape[2] % 2 == 0:

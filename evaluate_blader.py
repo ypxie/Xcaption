@@ -79,9 +79,9 @@ if __name__ == "__main__":
                 'print_training': False ,
                 'print_validation': True,
                 'online_feature':  True,
-                'hard_sampling' : True,
+                'hard_sampling' : False,
                 "clipnorm":1000,
-	           "clipvalue":0 
+	            "clipvalue":0 
                  } 
     # get updates from command line
     args = parser.parse_args()

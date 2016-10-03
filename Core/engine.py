@@ -10,7 +10,7 @@ from Core.recurrent import *
 from Core.convolution import Convolution2D, MaxPooling2D
 
 from utils.regularizers import l2
-from utils.activations import elu
+from utils.activations import elu, relu
 
 def get_conv_feature(tparams, options, inputs, params = None, weight_decay = 1e-7,prefix = 'conv_feat',
                       img_channels=3,dropoutrate = 0.5, trainable = True, belonging_Module=None, **kwargs):
@@ -21,9 +21,9 @@ def get_conv_feature(tparams, options, inputs, params = None, weight_decay = 1e-
     init_ModuleInfo(options, name = module_identifier)
     options['belonging_Module'] = module_identifier 
 
-    params = OrderedDict() if not params else params
+    params = OrderedDict() if params is None else params
 
-    activ = elu(alpha=1.0)  
+    activ = relu
     inputs.name = 'input'
     if hasattr(inputs, '_keras_shape'):
         print inputs._keras_shape
@@ -62,13 +62,19 @@ def get_conv_feature(tparams, options, inputs, params = None, weight_decay = 1e-
     conv_5 = Convolution2D(options, 512,3,3,belonging_Module=module_identifier,prefix='conv_5',init='orthogonal', 
                             border_mode='same', activation=activ,W_regularizer=W_regularizer, 
                             b_regularizer=b_regularizer, trainable=trainable)(dp_1,tparams, options,params = params)  # 6
-    
+
+    max_5 = MaxPooling2D(pool_size = (2,2))(conv_5)
+    dp = dropout_layer(dropoutrate = 0.25)(max_5)
+    conv_6 = Convolution2D(options, 1024,3,3,belonging_Module=module_identifier,prefix='conv_6',init='orthogonal',
+                            border_mode='same', activation=activ,W_regularizer=W_regularizer,
+                            b_regularizer=b_regularizer, trainable=trainable)(dp,tparams, options,params = params)  # 3
+
     update_father_module(options,belonging_Module, module_identifier)
 
     options['belonging_Module'] = None 
     print('Finished build conv_feat module')
     return [conv_5, conv_4, conv_3]
-        
+
 def build_model_single(tparams, options, x, mask, featSource, params = None, prefix = 'atten_model',
                        sampling=True, dropoutrate = 0.5, belonging_Module = None, trainable = True):
     """ Builds the entire computational graph used for training
@@ -113,7 +119,8 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
     opt_outs: OrderedDict
         extra outputs required depending on configuration in options
     """
-
+    #activ = T.tanh
+    init_activ = T.tanh
     if not belonging_Module:
         belonging_Module = options['belonging_Module'] if belonging_Module in options else None
     
@@ -127,70 +134,70 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
     if options['online_feature'] == True:
        # means we need to recompute the feature from ctx, which is actually row image.
        feat_pool = get_conv_feature(tparams, options, featSource, params = params, 
-                                    img_channels=3,dropoutrate = 0.5, trainable = trainable)
+                                    img_channels=3,dropoutrate = 0.25, trainable = options['train_feat_encoder'])
        #feat_index = options['feat_index']
-       ctx = feat_pool[0]
-       ks = getattr(ctx, '_keras_shape', None)
-       ctx = T.reshape(ctx, (ctx.shape[0], ctx.shape[1], -1))
-       ctx = np.transpose(ctx, (0, 2, 1))
-       ctx._keras_shape = (None, None, ks[1])
+       feat_pool = feat_pool[0:options['num_attention']]
+       context_list = []
+       for ctx in feat_pool:
+            ks = getattr(ctx, '_keras_shape', None)
+            ctx = T.reshape(ctx, (ctx.shape[0], ctx.shape[1], -1))
+            ctx = np.transpose(ctx, (0, 2, 1))
+            ctx._keras_shape = (None, None, ks[1])
+            context_list.append(ctx)
        
     elif options['online_feature'] == False:
        # means source is already comouted feature
-       ctx = featSource
+       #ctx = featSource
+       context_list = featSource
     options['regularizers'] = []
-    ctx_dim = options['ctx_dim']
+    #ctx_dim = options['ctx_dim']
+    ctx_dim_list = options['ctx_dim_list']
+
     proj_ctx_dim = options['proj_ctx_dim']
     lstm_cond_ndim = options['dim_word'] # originally, it accepts input from text.
 
-    #from capgen import get_layer
-    #dynamic_lstm_cond_layer =  get_layer('lstm_cond')[1]
-    #fflayer = get_layer('ff')[1]
-    
     rng = T.RandomStreams(1234)
     use_noise = T.variable(np.float32(0.))
 
-    #n_timesteps = x.shape[0]
-    #n_samples = x.shape[1]    
-
-    # index into the word embedding matrix, shift it forward in time
-    #emb = embeding_layer(tparams, x, options, prefix='embeding',dropout=None)
     emb = Embedding(options, prefix='embeding',input_dim = options['n_words'], output_dim=options['dim_word'], 
                     init='normal',trainable=trainable)(x, tparams, options, params = params,)
-    
     emb_shifted = T.zeros_like(emb)
     emb_shifted = T.assign_subtensor(emb_shifted, emb[:-1], slice(1,None,1))
     emb = emb_shifted
-        
-    if options['lstm_encoder']:
-        # encoder
-        ctx_fwd = LSTM(options,prefix='encoder', nin=options['ctx_dim'], dim=options['ctx_dim']/2, trainable = trainable)\
-                      (T.permute_dimensions(ctx, (1,0,2)),tparams,  options, params = params, )[0]
-        ctx_fwd =  T.permute_dimensions(ctx_fwd,(1,0,2) )
 
-        ctx_rev = LSTM(options,prefix='encoder_rev', nin=options['ctx_dim'], dim=options['ctx_dim']/2, trainable = trainable)\
-                      (T.reverse(T.permute_dimensions(ctx, (1,0,2)), axis = 1),tparams, options, params = params)[0]
-        ctx_rev =  T.reverse(ctx_rev,  axis = 1 )
-        ctx_rev =  T.permute_dimensions(ctx_rev,(1,0,2) )
-        
-        ctx0 = T.concatenate((ctx_fwd, ctx_rev), axis=2)
-    else:
-        ctx0 = ctx
-    # initial state/cell [top right on page 4]
-    
-    ctx_mean = T.mean(ctx0, axis=1) #ctx0.mean(1)
-    print ctx_mean._keras_shape
-    for lidx in xrange(1, options['n_layers_init']):
-        ctx_mean = Dense(options,prefix='ff_init_%d'%lidx, nout=ctx_dim, trainable = trainable, 
-                         activation='relu')(ctx_mean,tparams, options, params = params)
+    ctx0_list = []
+    ctx_mean_list = []
+    for idx, ctx in enumerate(context_list):
+        if options['lstm_encoder']:
+            # encoder
+            ctx_fwd = LSTM(options,prefix='encoder_cidx_%d'%idx, nin=ctx_dim_list[idx], dim= ctx_dim_list[idx]/2, trainable = trainable)\
+                        (T.permute_dimensions(ctx, (1,0,2)),tparams,  options, params = params, )[0]
+            ctx_fwd =  T.permute_dimensions(ctx_fwd,(1,0,2) )
 
-        if options['use_dropout']:
-            ctx_mean = dropout_layer(rng = rng, dropoutrate = options['use_dropout'])(ctx_mean)
-    
+            ctx_rev = LSTM(options,prefix='encoder_rev_cidx_%d'%idx, nin=ctx_dim_list[idx], dim=ctx_dim_list[idx]/2, trainable = trainable)\
+                        (T.reverse(T.permute_dimensions(ctx, (1,0,2)), axis = 1),tparams, options, params = params)[0]
+            ctx_rev =  T.reverse(ctx_rev,  axis = 1 )
+            ctx_rev =  T.permute_dimensions(ctx_rev,(1,0,2) )
+            
+            ctx0 = T.concatenate((ctx_fwd, ctx_rev), axis=2)
+        else:
+            ctx0 = ctx
+        ctx0_list.append(ctx0)
+        
+        # initial state/cell [top right on page 4]
+        ctx_mean = T.mean(ctx0, axis=1) #ctx0.mean(1)
+        #print ctx_mean._keras_shape
+        for lidx in xrange(1, options['n_layers_init']):
+            ctx_mean = Dense(options,prefix='ff_init_layer_init_{0}_cidx_{1}'.format(lidx, idx), nout=ctx_dim_list[idx], trainable = trainable,
+                            activation=init_activ)(ctx_mean,tparams, options, params = params)
+            if options['use_dropout']:
+                ctx_mean = dropout_layer(rng = rng, dropoutrate = options['use_dropout'])(ctx_mean)
+        ctx_mean_list.append(ctx_mean)
+    ctx_mean_concate = T.concatenate(ctx_mean_list, axis=-1)
     init_state  = Dense(options, prefix='ff_state', nout=options['dim'], trainable = trainable, 
-                         activation='tanh')(ctx_mean, tparams, options, params = params)
+                        activation=init_activ)(ctx_mean_concate, tparams, options, params = params)
     init_memory = Dense(options, prefix='ff_memory', nout=options['dim'], trainable = trainable, 
-                         activation='tanh')(ctx_mean, tparams, options, params = params)
+                        activation=init_activ)(ctx_mean_concate, tparams, options, params = params)
 
     # lstm decoder
     # [equation (1), (2), (3) in section 3.1.2]
@@ -199,53 +206,55 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
                                 prefix='decoder', 
                                 nin=lstm_cond_ndim, 
                                 dim=options['dim'], 
-                                ctx_dim=ctx_dim, 
                                 proj_ctx_dim=proj_ctx_dim,
                                 trainable=trainable,  
-                                mask=mask, context=ctx0, 
+                                mask=mask, context_list=ctx0_list, 
                                 one_step=False,
                                 init_state=init_state,
                                 init_memory=init_memory,
-                                rng=rng, 
+                                rng=rng,
                                 sampling=sampling)(emb, tparams, options, params = params)
 
     #attn_updates.updates(updates)   
     attn_updates = updates
     #attn_updates.extend(updates.items())   
-    proj_h = proj[0] 
+    proj_h = proj[0]
+    alphas_list = [proj[2]]
+    alpha_sample_list = [proj[3]]
+    ctxs_list = [proj[4]]
     # optional deep attention
     if options['n_layers_lstm'] > 1:
         for lidx in xrange(1, options['n_layers_lstm']):
-            init_state  = Dense(options, prefix='ff_state_%d'%lidx, nin=ctx_dim, nout=options['dim'], trainable = trainable, 
-                                activation='tanh')(ctx_mean, tparams, options, params = params)
-            init_memory = Dense(options, prefix='ff_memory_%d'%lidx,nin=ctx_dim, nout=options['dim'], trainable = trainable, 
-                                activation='tanh')(ctx_mean, tparams, options, params = params)
+            init_state  = Dense(options, prefix='ff_state_%d'%lidx,  nout=options['dim'], trainable = trainable, 
+                                activation= init_activ)(ctx_mean_concate, tparams, options, params = params)
+            init_memory = Dense(options, prefix='ff_memory_%d'%lidx, nout=options['dim'], trainable = trainable, 
+                                activation= init_activ)(ctx_mean_concate, tparams, options, params = params)
             
             proj, updates = cond_LSTM(  options,
                                         prefix='decoder_%d'%lidx,
                                         nin=lstm_cond_ndim, 
                                         dim=options['dim'], 
-                                        ctx_dim=ctx_dim, 
                                         proj_ctx_dim=proj_ctx_dim,
                                         trainable=trainable,  
-                                        mask=mask, context=ctx0, 
+                                        mask=mask, context_list=ctx0_list, 
                                         one_step=False,
                                         init_state=init_state,
                                         init_memory=init_memory,
-                                        rng=rng, 
+                                        rng=rng,
                                         sampling=sampling)(proj_h,tparams, options, params = params )
             #attn_updates.extend(updates.items()) 
-            attn_updates.updates(updates) 
+
+            #attn_updates.updates(updates)
             proj_h = proj[0]
 
-    alphas = proj[2]
-    alpha_sample = proj[3]
-    ctxs = proj[4]
+            alphas_list.append(proj[2])
+            alpha_sample_list.append(proj[3])
+            ctxs_list.append(proj[4])
+
 
     # [beta value explained in note 4.2.1 "doubly stochastic attention"]
-    if options['selector']:
-        sels = proj[5]
-    
+    #if options['selector']:
+    #    sels_list = proj[5]
     if options['use_dropout']:
         proj_h = dropout_layer(rng=rng, dropoutrate = options['use_dropout'])(proj_h)
     
@@ -257,8 +266,9 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
     if options['prev2out']:
         logit += emb
     if options['ctx2out']:
-        logit += Dense(options, prefix='ff_logit_ctx', nin=ctx_dim,  nout=options['dim_word'], trainable = trainable, 
-                        activation='linear')(ctxs, tparams,   options, params = params)
+        for idx, ctxs in enumerate(ctxs_list[-1]):
+            logit += Dense(options, prefix='ff_logit_ctx_cidx_%d'%idx,  nout=options['dim_word'], trainable = trainable,
+                            activation='linear')(ctxs, tparams, options, params = params)
                   
     logit = T.tanh(logit)
     
@@ -267,14 +277,15 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
     if options['n_layers_out'] > 1:
         for lidx in xrange(1, options['n_layers_out']):
             logit = Dense(options, prefix='ff_logit_h%d'%lidx, nin=options['dim_word'], nout=options['dim_word'], 
-                          trainable = trainable, activation='relu')(logit, tparams, options, params = params)
-
+                          trainable = trainable, activation = 'tanh')(logit, tparams, options, params = params)
+            
             if options['use_dropout']:
                 logit = dropout_layer(rng=rng, dropoutrate = options['use_dropout'])(logit)
 
     # compute softmax
     logit = Dense(options, prefix='ff_logit', nin=options['dim_word'],nout=options['n_words'], 
                    trainable = trainable, activation='linear')(logit, tparams, options, params = params)
+
     logit_shp = logit.shape
     probs = T.softmax(logit.reshape([logit_shp[0]*logit_shp[1], logit_shp[2]]))
 
@@ -288,23 +299,34 @@ def build_model_single(tparams, options, x, mask, featSource, params = None, pre
 
     # optional outputs
     opt_outs = dict()
-    if options['selector']:
-        opt_outs['selector'] = sels
+    #if options['selector']:
+    #    opt_outs['selector'] = sels_list
     if options['attn_type'] == 'stochastic' or options['hard_sampling'] == True :
         opt_outs['masked_cost'] = masked_cost # need this for reinforce later
         opt_outs['attn_updates'] = attn_updates # this is to update the rng
     
     options['belonging_Module'] = None 
     
-    return rng,use_noise,  [x, mask, featSource], alphas, alpha_sample, cost, opt_outs
+    return rng,use_noise,  [x, mask, featSource], expand_list(alphas_list), expand_list(alpha_sample_list), cost, opt_outs
 
+def get_reward(probs, x_flat):
+    '''
 
+    Parameters
+    ----------
+    probs: times * batchsize * n_words
+    x_flat: times * batchsize
 
+    Returns
+    the rewards.
+    ------
+    '''
+    pass
 def parse_init_values(options, init_values,reshape=False):
     next_state = []
     next_memory = []
-    next_alpha = []
-
+    next_alpha = [] #should be list of list
+    interv = options['num_attention']
     # the states are returned as a: (dim,) and this is just a reshape to (1, dim)
     for lidx in xrange(options['n_layers_lstm']):
         next_state.append(init_values[lidx])
@@ -314,98 +336,133 @@ def parse_init_values(options, init_values,reshape=False):
         next_memory.append(init_values[options['n_layers_lstm']+lidx])
         if T.ndim(next_memory[-1]) == 1 and reshape:
             next_memory[-1] = next_memory[-1].reshape([1, next_memory[-1].size])
-    for lidx in xrange(options['n_layers_lstm']):
-        next_alpha.append(init_values[2*options['n_layers_lstm']+lidx])
-        if T.ndim(next_alpha[-1]) == 1 and reshape:
-            next_alpha[-1] = next_alpha[-1].reshape([1, next_alpha[-1].size])
 
+    for lidx in xrange(options['n_layers_lstm']):
+        this_start = 2*options['n_layers_lstm']+lidx*interv
+        next_alpha.append(init_values[this_start:this_start+interv])
+        for idx in range(len(next_alpha[-1])):
+            if T.ndim(next_alpha[-1][idx]) == 1 and reshape:
+                next_alpha[-1][idx] = next_alpha[-1][idx].reshape([1, next_alpha[-1][idx].size])
+    
     return next_state, next_memory,next_alpha
 
 # build a sampler
-def build_sampler(tparams, options, rng, x_1d, ctx_2d,  sampling=True, dropoutrate = 0.5,allow_input_downcast=True):
-    
+def build_sampler(tparams, options, rng, x_1d, featSource,  sampling=True, dropoutrate = 0.5,allow_input_downcast=True):
+    #activ = T.tanh
+    init_activ = T.tanh
     #http://stackoverflow.com/questions/8934772/assigning-to-variable-from-parent-function-local-variable-referenced-before-as
-    def f_init_clousure(ctx_2d=ctx_2d, learning_phase = T.learning_phase()):
-        ctx = T.expand_dims(ctx_2d, dim=0, broadcastable = False)  
+    interv = options['num_attention']
+    def f_init_clousure(featSource=featSource, learning_phase = T.learning_phase()):
+        if options['online_feature'] == True:
+            featSource = T.expand_dims(featSource, dim=0)
+           # means we need to recompute the feature from ctx, which is actually row image.
+            feat_pool = get_conv_feature(tparams, options, featSource,
+                                            img_channels=3,dropoutrate = 0.25)
+            feat_pool = feat_pool[0:interv]
 
-        if options['lstm_encoder']:
-            # encoder
-            ctx_fwd = lstm_layer(tparams, T.permute_dimensions(ctx, (1,0,2)),
-                                        options, prefix='encoder')[0]
-            ctx_fwd =  T.permute_dimensions(ctx_fwd,(1,0,2) )
-    
-            ctx_rev = lstm_layer(tparams, T.reverse(T.permute_dimensions(ctx, (1,0,2)), axis = 1),
-                                        options, prefix='encoder_rev')[0]
-            ctx_rev =  T.reverse(ctx_rev,  axis = 1 )
-            ctx_rev =  T.permute_dimensions(ctx_rev,(1,0,2) )                               
-                
-            ctx0 = T.concatenate((ctx_fwd, ctx_rev), axis=2)
-        else:
-            ctx0 = ctx
-        # initial state/cell [top right on page 4]
-        ctx_mean = T.mean(ctx0, axis=1) #ctx0.mean(1)
+            context_list = []
+            for ctx in feat_pool:
+                ks = getattr(ctx, '_keras_shape', None)
+                ctx = T.reshape(ctx, (ctx.shape[0], ctx.shape[1], -1))
+                ctx = np.transpose(ctx, (0, 2, 1))
+                ctx._keras_shape = (None, None, ks[1])
+                context_list.append(ctx)
+        elif options['online_feature'] == False:
+            # means source is already comouted feature
+            context_list = [f[None] for f in featSource] # in this case it should be list of tensors.
+        ctx0_list = []
+        ctx_mean_list = []
+        for idx, ctx in enumerate(context_list):
+            if options['lstm_encoder']:
+                # encoder
+                ctx_fwd = lstm_layer(tparams, T.permute_dimensions(ctx, (1,0,2)),
+                                            options, prefix='encoder_cidx_%d'%idx)[0]
+                ctx_fwd =  T.permute_dimensions(ctx_fwd,(1,0,2))
         
-        for lidx in xrange(1, options['n_layers_init']):
-            ctx_mean = fflayer(tparams, ctx_mean, options,
-                                        prefix='ff_init_%d'%lidx, activation='softplus')
-            if options['use_dropout']:
-                ctx_mean = dropout_layer(rng = rng, dropoutrate = options['use_dropout'])(ctx_mean) 
+                ctx_rev = lstm_layer(tparams, T.reverse(T.permute_dimensions(ctx, (1,0,2)), axis = 1),
+                                            options, prefix='encoder_rev_cidx_%d'%idx)[0]
+                ctx_rev =  T.reverse(ctx_rev,  axis = 1 )
+                ctx_rev =  T.permute_dimensions(ctx_rev,(1,0,2) )                               
+                ctx0 = T.concatenate((ctx_fwd, ctx_rev), axis=2)
+            else:
+                ctx0 = ctx
+            ctx0_list.append(ctx0)
+            # initial state/cell [top right on page 4]
+            ctx_mean = T.mean(ctx0, axis=1) #ctx0.mean(1)
+            for lidx in xrange(1, options['n_layers_init']):
+                ctx_mean = fflayer(tparams, ctx_mean, options,
+                                            prefix='ff_init_layer_init_{0}_cidx_{1}'.format(lidx, idx), activation=init_activ)
+                if options['use_dropout']:
+                    ctx_mean = dropout_layer(rng = rng, dropoutrate = options['use_dropout'])(ctx_mean)
+            ctx_mean_list.append(ctx_mean)
 
-        init_state =  [fflayer(tparams, ctx_mean, options, prefix='ff_state', activation='tanh')]
-        init_memory = [fflayer(tparams, ctx_mean, options, prefix='ff_memory', activation='tanh')]
-        init_alpha =  [T.alloc(0., (ctx.shape[0], ctx.shape[1]), broadcastable=False )]
+        ctx_mean_concate = T.concatenate(ctx_mean_list, axis=-1)
+        init_state =  [fflayer(tparams, ctx_mean_concate, options, prefix='ff_state', activation= init_activ)]
+        init_memory = [fflayer(tparams, ctx_mean_concate, options, prefix='ff_memory', activation= init_activ)]
+        this_alpha_sampling_list = [T.alloc(0., (ctx0.shape[0], ctx0.shape[1]), broadcastable=False ) for ctx0 in ctx0_list]
+        init_alpha_sampling_list = [this_alpha_sampling_list]
 
         if options['n_layers_lstm'] > 1:
             for lidx in xrange(1, options['n_layers_lstm']):
-                init_state.append(fflayer(tparams, ctx_mean, options, prefix='ff_state_%d'%lidx, activation='tanh'))
-                init_memory.append( fflayer(tparams, ctx_mean, options, prefix='ff_memory_%d'%lidx, activation='tanh'))
-                init_alpha.append(T.alloc(0., (ctx.shape[0], ctx.shape[1]), broadcastable=False) )
+                init_state.append(fflayer(tparams, ctx_mean_concate, options, prefix='ff_state_%d'%lidx, activation=init_activ))
+                init_memory.append( fflayer(tparams, ctx_mean_concate, options, prefix='ff_memory_%d'%lidx, activation=init_activ))
+                this_alpha_sampling_list = [T.alloc(0., (ctx0.shape[0], ctx0.shape[1]), broadcastable=False ) for ctx0 in ctx0_list]
+                init_alpha_sampling_list.append(this_alpha_sampling_list)
                 
         print 'Building f_init...',
-        outputs = [ctx0[0]]+init_state+init_memory + init_alpha
+        outputs = [ct[0] for ct in ctx0_list] + init_state+init_memory + expand_list(init_alpha_sampling_list)
         return outputs
-    
-    init_outputs  = f_init_clousure(ctx_2d, T.learning_phase())
-    init_values = init_outputs[1:]
-    ctx_encoded = init_outputs[0]
 
-    def f_next_clousure(x_1d = x_1d, ctx_2d=ctx_encoded, learning_phase = T.learning_phase(), *init_values):    
-        x = T.expand_dims(x_1d, dim=0, broadcastable = True) 
-        ctx0 = T.expand_dims(ctx_2d, dim=0, broadcastable = True)
-        
-        init_state, init_memory, init_alpha = parse_init_values(options, list(init_values))
+    init_outputs  = f_init_clousure(featSource, T.learning_phase())
+    init_inputs = [featSource, T.learning_phase()]
+
+    init_values = init_outputs[interv:]
+    ctx_encoded_list = init_outputs[0:interv]
+
+    def f_next_clousure(x_1d = x_1d, learning_phase = T.learning_phase(), *other_args):
+        '''
+        ctx_encoded_list should contain feature that are 1*num_slots*dim it is of 3 dimension.
+        other_args: state, memory, flatten_list of alpha_Sampling, and last interv number of attention.
+        '''
+        other_args = list(other_args)
+        assert T.ndim(x_1d) == 1, 'x_1d has to be 1 dimensional: sample'
+        x = T.expand_dims(x_1d, dim=0, broadcastable = True)
+        #ctx0 = T.expand_dims(ctx_2d, dim=0, broadcastable = True)
+        ctx_encoded_list = other_args[0:interv]
+
+        init_state, init_memory, init_alpha_sampling = parse_init_values(options, list(other_args[interv:]))
 
         emb = embeding_layer(tparams, x, options, prefix='embeding',dropout=None,
                     specifier=-1,filled_value=0.)
-        proj = dynamic_lstm_cond_layer(tparams, emb, options,
+        proj, _ = dynamic_lstm_cond_layer(tparams, emb, options,
                                         prefix='decoder',
-                                        mask=None, context=ctx0,
-                                        one_step=True,
+                                        mask=None, context_list=ctx_encoded_list,
+                                        last_step = True,
                                         init_state=init_state[0],
                                         init_memory=init_memory[0],
-                                        init_alpha = init_alpha[0],
+                                        init_alpha_sampling_list = init_alpha_sampling[0],
                                         rng=rng,
                                         sampling=sampling)
 
-        next_state, next_memory, ctxs, next_alpha = [proj[0]], [proj[1]], [proj[4]], [proj[2]]
+        next_state, next_memory, ctxs_list, next_alpha_sampling_list = [proj[0]], [proj[1]], [proj[4]], [proj[3]]
         proj_h = proj[0]
         if options['n_layers_lstm'] > 1:
             for lidx in xrange(1, options['n_layers_lstm']):
-                proj = dynamic_lstm_cond_layer(tparams, proj_h, options,
+                proj, _  = dynamic_lstm_cond_layer(tparams, proj_h, options,
                                                 prefix='decoder_%d'%lidx,
-                                                context=ctx0,
-                                                one_step=True,
+                                                context_list=ctx_encoded_list,
+                                                last_step = True,
                                                 init_state=init_state[lidx],
                                                 init_memory=init_memory[lidx],
-                                                init_alpha = init_alpha[lidx],
+                                                init_alpha_sampling_list = init_alpha_sampling[lidx],
                                                 rng=rng,
                                                 sampling=sampling)
                 next_state.append(proj[0])
                 next_memory.append(proj[1])
-                ctxs.append(proj[4])
-                next_alpha.append(proj[2])
+                ctxs_list.append(proj[4])
+                next_alpha_sampling_list.append(proj[3])
                 proj_h = proj[0]
-
+        
         if options['use_dropout']:
             proj_h = dropout_layer( rng=rng, dropoutrate = options['use_dropout'])(proj[0])
         else:
@@ -414,30 +471,32 @@ def build_sampler(tparams, options, rng, x_1d, ctx_2d,  sampling=True, dropoutra
         if options['prev2out']:
             logit += emb[0]
         if options['ctx2out']:
-            logit += fflayer(tparams, ctxs[-1], options, prefix='ff_logit_ctx', activation='linear')
+            for idx, ctxs in enumerate(ctxs_list[-1]):
+                logit += fflayer(tparams, ctxs, options, prefix='ff_logit_ctx_cidx_%d'%idx, activation='linear')
+
         logit = T.tanh(logit)
         if options['use_dropout']:
             logit = dropout_layer(rng=rng, dropoutrate = options['use_dropout'])(logit)
         if options['n_layers_out'] > 1:
             for lidx in xrange(1, options['n_layers_out']):
-                logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activation='softplus')
+                logit = fflayer(tparams, logit, options, prefix='ff_logit_h%d'%lidx, activation='tanh')
                 if options['use_dropout']:
                     logit = dropout_layer(rng=rng, dropoutrate = options['use_dropout'])(logit)
         logit = fflayer(tparams, logit, options, prefix='ff_logit', activation='linear')
         logit_shp = logit.shape
         next_probs = T.softmax(logit)
-        next_sample = T.multinomial(shape = (1,), pvals =next_probs).argmax(1)
+        next_sample = T.multinomial(pvals =next_probs).argmax(1)
         
-        outputs = [next_probs, next_sample] + next_state + next_memory + next_alpha
+        outputs = [next_probs, next_sample] + next_state + next_memory + expand_list(next_alpha_sampling_list)
         return outputs
-    
-    next_outputs = f_next_clousure(x_1d, ctx_encoded, T.learning_phase(), *init_values)
-    
-    init_tuple = [init_outputs, f_init_clousure]
-    next_tuple = [next_outputs, f_next_clousure]
+    other_args = ctx_encoded_list + init_values
+    next_outputs = f_next_clousure(x_1d, T.learning_phase(), *other_args)
+    next_inputs = expand_list([x_1d, T.learning_phase()] + other_args )
+
+    init_tuple = [init_inputs, init_outputs, f_init_clousure]
+    next_tuple = [next_inputs, next_outputs, f_next_clousure]
     
     return init_tuple, next_tuple
-
 
 #generate sample
 def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30, stochastic=False):
@@ -461,6 +520,7 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
     ctx0 : np array
         annotation from convnet, of dimension #annotations x # dimension
         [e.g (196 x 512)]
+        or It can be 3*512*512 as the images.
     options : dict
         dictionary of flags and options
     trng : random number generator
@@ -496,24 +556,11 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
 
     # only matters if we use lstm encoder
     learning_phase = np.uint8(0)
+    interv = options['num_attention']
     rval = f_init(ctx0,learning_phase)
-    ctx0 = rval[0]
-    # next_state = []
-    # next_memory = []
-    # next_alpha = []
+    ctx0_list = rval[0:interv]
 
-    # # the states are returned as a: (dim,) and this is just a reshape to (1, dim)
-    # for lidx in xrange(options['n_layers_lstm']):
-    #     next_state.append(rval[1+lidx])
-    #     next_state[-1] = next_state[-1].reshape([1, next_state[-1].size])
-    # for lidx in xrange(options['n_layers_lstm']):
-    #     next_memory.append(rval[1+options['n_layers_lstm']+lidx])
-    #     next_memory[-1] = next_memory[-1].reshape([1, next_memory[-1].size])
-    # for lidx in xrange(options['n_layers_lstm']):
-    #     next_alpha.append(rval[1+2*options['n_layers_lstm']+lidx])
-    #     next_alpha[-1] = next_alpha[-1].reshape([1, next_alpha[-1].size])
-    
-    next_state,next_memory,next_alpha =  parse_init_values(options, rval[1:], reshape=True)
+    next_state,next_memory,next_alpha =  parse_init_values(options, rval[interv:], reshape=True)
     
     # reminder: if next_w = -1, the switch statement
     # in build_sampler is triggered -> (empty word embeddings)
@@ -521,18 +568,21 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
 
     for ii in xrange(maxlen):
         # our "next" state/memory in our previous step is now our "initial" state and memory
-        rval = f_next(*([next_w, ctx0, learning_phase]+next_state+next_memory+next_alpha))
+        next_list = expand_list(ctx0_list + next_state + next_memory + next_alpha)
+        rval = f_next(*([next_w, learning_phase]+ next_list))
         next_p = rval[0]
         next_w = rval[1]
 
         # extract all the states and memories
-        next_state = []
-        next_memory = []
-        next_alpha = []
-        for lidx in xrange(options['n_layers_lstm']):
-            next_state.append(rval[2+lidx])
-            next_memory.append(rval[2+options['n_layers_lstm']+lidx])
-            next_alpha.append(rval[2+2*options['n_layers_lstm']+lidx])
+        #next_state = []
+        #next_memory = []
+        #next_alpha = []
+        #for lidx in xrange(options['n_layers_lstm']):
+        #    next_state.append(rval[2+lidx])
+        #    next_memory.append(rval[2+options['n_layers_lstm']+lidx])
+        #    next_alpha.append(rval[2+2*options['n_layers_lstm']+lidx])
+        next_state,next_memory,next_alpha =  parse_init_values(options, rval[2:], reshape=False)
+
         if stochastic:
             sample.append(next_w[0]) # if we are using stochastic sampling this easy
             sample_score += next_p[0,next_w[0]]
@@ -558,7 +608,7 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
             for lidx in xrange(options['n_layers_lstm']):
                 new_hyp_states.append([])
                 new_hyp_memories.append([])
-                new_hyp_alphas.append([])
+                new_hyp_alphas.append(multi_list([], interv))
             # get the corresponding hypothesis and append the predicted word
             for idx, [ti, wi] in enumerate(zip(trans_indices, word_indices)):
                 new_hyp_samples.append(hyp_samples[ti]+[wi])
@@ -566,7 +616,13 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
                 for lidx in xrange(options['n_layers_lstm']):
                     new_hyp_states[lidx].append(copy.copy(next_state[lidx][ti]))
                     new_hyp_memories[lidx].append(copy.copy(next_memory[lidx][ti]))
-                    new_hyp_alphas[lidx].append(copy.copy(next_alpha[lidx][ti]))
+                    for cidx in range(interv):
+                        new_hyp_alphas[lidx][cidx].append(copy.copy(next_alpha[lidx][cidx][ti]))
+            #for lidx in xrange(options['n_layers_lstm']):
+            #    for cidx in range(interv):
+            #        for idx, [ti, wi] in enumerate(zip(trans_indices, word_indices)):
+            #            new_hyp_alphas[lidx][cidx].append(copy.copy(next_alpha[lidx][cidx][ti]))
+
             # check the finished samples for <eos> character
             new_live_k = 0
             hyp_samples = []
@@ -577,7 +633,7 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
             for lidx in xrange(options['n_layers_lstm']):
                 hyp_states.append([])           
                 hyp_memories.append([])
-                hyp_alphas.append([])
+                hyp_alphas.append(multi_list([], interv))
             # check for completed sentences.
             for idx in xrange(len(new_hyp_samples)):
                 if new_hyp_samples[idx][-1] == 0:
@@ -591,7 +647,15 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
                     for lidx in xrange(options['n_layers_lstm']):
                         hyp_states[lidx].append(new_hyp_states[lidx][idx])
                         hyp_memories[lidx].append(new_hyp_memories[lidx][idx])
-                        hyp_alphas[lidx].append(new_hyp_alphas[lidx][idx])
+                        for cidx in range(interv):
+                            hyp_alphas[lidx][cidx].append(new_hyp_alphas[lidx][cidx][idx])
+
+            #if new_hyp_samples[idx][-1] != 0:
+            #    for lidx in xrange(options['n_layers_lstm']):
+            #        for cidx in range(interv):
+            #            for idx in xrange(len(new_hyp_samples)):
+            #                hyp_alphas[lidx][cidx].append(new_hyp_alphas[lidx][cidx][idx])
+
             hyp_scores = np.array(hyp_scores)
             live_k = new_live_k
 
@@ -603,11 +667,12 @@ def gen_sample(tparams, f_init, f_next, ctx0, options, rng=None, k=1, maxlen=30,
             next_w = np.array([w[-1] for w in hyp_samples])
             next_state = []
             next_memory = []
-            next_alpha = []
+            next_alpha = multi_list(multi_list([],interv), options['n_layers_lstm'])
             for lidx in xrange(options['n_layers_lstm']):
                 next_state.append(np.array(hyp_states[lidx]))
                 next_memory.append(np.array(hyp_memories[lidx]))
-                next_alpha.append(np.array(hyp_alphas[lidx]))
+                for cidx in range(interv):
+                    next_alpha[lidx][cidx]=(np.array(hyp_alphas[lidx][cidx]))
     if not stochastic:
         # dump every remaining one
         if live_k > 0:

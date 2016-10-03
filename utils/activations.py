@@ -26,12 +26,15 @@ def softsign(x):
 def relu(x, alpha=0., max_value=None):
     return K.relu(x, alpha=alpha, max_value=max_value)
 
-def elu(alpha=1):
+def wrapper_elu(alpha=1):
     def f(x):
         pos = K.relu(x)
         neg = (x - K.abs(x)) * 0.5
         return pos + alpha * (K.exp(neg) - 1.)
     return f
+
+def elu(x):
+    return wrapper_elu(1)(x)
     
 def tanh(x):
     return K.tanh(x)

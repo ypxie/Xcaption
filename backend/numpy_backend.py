@@ -5,20 +5,26 @@ import logging
 from collections import OrderedDict
 from backend.scan_utils import *
 from backend.keras_backend.common  import *
-
+import warnings
 _logger = logging.getLogger('theano.scan_module.scan')
 _FLOATX = 'float32'
 floatX = _FLOATX
 dimshuffle = np.transpose
 _LEARNING_PHASE = np.zeros((1))
 _EPSILON = 1e-9
+
+abs = np.absolute
 class npwrapper(np.ndarray):
     '''usage: to append trainable attr to numpy object in layer initialization
        eg: b = npwrapper(np.arange(5), trainable=False) '''
-    def __new__(cls, input_array, trainable=True):
+    def __new__(cls, input_array, trainable=True, broadcastable=None):
+        if broadcastable is None:
+            broadcastable = getattr(input_array, 'broadcastable', None)
+
         obj = np.asarray(input_array).view(cls)
         obj.trainable = trainable
         obj._keras_shape = obj.shape
+        obj.broadcastable = broadcastable
         #obj.random = np.random
         #obj.linalg = np.linalg
         return obj 
@@ -182,11 +188,13 @@ def multinomial(shape=None, pvals=0.0, n =1, dtype=_FLOATX, rng=None):
         seed = np.random.randint(1, 10e6)
         rng = RandomStreams(seed=seed)
     if shape is None:
-        shape = ()
+        #shape = ()
+        shape = pvals.shape
     if len(shape) == 1:
         return rng.multinomial(size= shape,n=n, pvals=pvals.flatten()).astype(dtype)
     else:
-        res_shape = shape + (pvals.shape[-1],)
+        #res_shape = shape + (pvals.shape[-1],)
+        res_shape = shape
         flat_results = np.zeros(res_shape, dtype).reshape((-1, pvals.shape[-1]))
         flat_pvals   = pvals.reshape((-1, pvals.shape[-1]))
         for ind in xrange(flat_results.shape[0]):
@@ -194,7 +202,7 @@ def multinomial(shape=None, pvals=0.0, n =1, dtype=_FLOATX, rng=None):
                 this_flat_p = flat_pvals[ind]
             else:
                 this_flat_p = pvals.flatten()
-            flat_results[ind] = rng.multinomial(size= (1,),n=n, pvals= this_flat_p).astype(dtype)
+            flat_results[ind] = rng.multinomial(n=n, pvals= this_flat_p-1e-8).astype(dtype)
         
         results = flat_results.reshape(res_shape)
         return results
@@ -217,9 +225,15 @@ def set_subtensor(dest, source):
     # you can not use return value, since dest can be a indexed tensor which 
     # might not have a desired shape
     dest = source
+    raise warnings('please be careful, dest in set_subtensor is the sliced \
+                   version of dest, use assign_subtensor instead')
+    return dest
 
-def assign_subtensor(dest, source, dest_slice):
-    dest[dest_slice] = source
+def assign_subtensor(dest, source, dest_slice=None):
+    if dest_slice is None:
+        dest[:] = source[:]
+    else:
+        dest[dest_slice] = source
     return dest    
 
 
@@ -422,8 +436,15 @@ def sigmoid(x):
   
 def softmax(x):
     """Compute softmax values for each sets of scores in x."""
-    e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum()
+    #e_x = np.exp(x - np.max(x))
+    #return e_x / e_x.sum()
+    shape = x.shape
+    x_2d = np.reshape(x, (-1, shape[-1]))
+
+    e_x = np.exp(x_2d - x_2d.max(axis=1, keepdims=True))
+    out_2d = e_x / e_x.sum(axis=1, keepdims=True)
+    out = np.reshape(out_2d, shape)
+    return out
 
 def hard_sigmoid(x):
     return sigmoid(x)
@@ -470,8 +491,23 @@ def l2_normalize(x, axis):
     return x / norm
 
 # CONVOLUTIONS
+import autograd.scipy.signal
+
+def np_conv2d(x, k, axes=([2, 3], [2, 3]), dot_axes = ([1], [0]),**kwargs):
+    '''
+    x: inputs [data, color_in, y, x]
+    k: [color_out, color_in, y, x]
+    '''
+    k = k.transpose((1,0,2,3))
+    res = autograd.scipy.signal.convolve(x,k,axes=axes,dot_axes=dot_axes, **kwargs)
+    return res
+
+# np_conv2d, the shape information is:
+# Input_shape: [data, color_in, y, x]
+# Params dimensions: [color_in, color_out, y, x]
+# Output dimensions: [data, color_out, y, x]
 def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
-           image_shape=None, filter_shape=None,dilated = 0, rate = 1,**kwargs):
+           image_shape=None, filter_shape=None, dilated = 0, rate = 1,**kwargs):
     '''
     border_mode: string, "same" or "valid".
     '''
@@ -479,7 +515,6 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
         raise Exception('Unknown dim_ordering ' + str(dim_ordering))
     if dilated == 0:
         rate = [rate, rate]
-
     if dim_ordering == 'tf':
         # TF uses the last dimension as channel dimension,
         # instead of the 2nd one.
@@ -495,12 +530,16 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
         if filter_shape:
             filter_shape = (filter_shape[3], filter_shape[2],
                             filter_shape[0], filter_shape[1])
-
     if border_mode == 'same':
         th_border_mode = 'half'
-        np_kernel = kernel.eval()
-    elif border_mode == 'valid':
+        np_kernel = kernel
+        ks = np_kernel.shape
+        pad4d = ((0,0),(0,0),(ks[2]/2 -1, ks[2]-ks[2]/2), (ks[3]/2-1, ks[3]-ks[3]/2) )
+        img = np.pad(x, pad4d, mode = 'constant')
         th_border_mode = 'valid'
+
+    elif border_mode == 'valid':
+         th_border_mode = 'valid'
     else:
         raise Exception('Border mode not supported: ' + str(border_mode))
 
@@ -517,11 +556,7 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
     if filter_shape is not None:
         filter_shape = tuple(int_or_none(v) for v in filter_shape)
 
-    conv_out = conv2d(x, kernel,
-                             border_mode=th_border_mode,
-                             subsample=strides, filters_dilations = rate,
-                             input_shape=image_shape,
-                             filter_shape=filter_shape)
+    conv_out = np_conv2d(x, kernel, mode=th_border_mode)
 
     if border_mode == 'same':
         if np_kernel.shape[2] % 2 == 0:
@@ -531,7 +566,33 @@ def conv2d(x, kernel, strides=(1, 1), border_mode='valid', dim_ordering='th',
 
     if dim_ordering == 'tf':
         conv_out = conv_out.transpose((0, 2, 3, 1))
+    conv_out = npwrapper(conv_out)
     return conv_out
+
+def np_pool_2d(inputs, ds=(2,2), st=2, padding=(0,0), mode='max', **kwargs):
+    new_shape = inputs.shape[:2]
+    pad3d = ((0,0),(0,0), (padding[0], padding[0]), (padding[1], padding[1]))
+    inputs = np.pad(inputs, pad3d, mode = 'constant')
+
+    expected_width = ( (inputs.shape[2] + st[0] -1 ) // st[0]) * st[0]
+    expected_height =( (inputs.shape[3] + st[1] -1) // st[1]) * st[1]
+
+    residue = ((0,0),(0,0),(0,expected_width-inputs.shape[2] ),(0,expected_height-inputs.shape[3]))
+    inputs = np.pad(inputs, residue, mode = 'constant')
+
+    inputs = inputs[:,:,0:expected_width, 0:expected_height]
+
+    for i in [0, 1]:
+        pool_width = ds[i]
+        img_width = inputs.shape[i + 2]
+        new_shape += (pool_width, img_width / pool_width)
+    result = inputs.reshape(new_shape)
+    if mode == 'max':
+        res = np.max(np.max(result, axis=2), axis=3)
+    elif mode == 'avg':
+        res = np.mean(np.mean(result, axis=2), axis=3)
+    res = npwrapper(res)
+    return res
 
 def pool2d(x, pool_size, strides=(1, 1), border_mode='valid',
            dim_ordering='th', pool_mode='max'):
@@ -573,6 +634,7 @@ def pool2d(x, pool_size, strides=(1, 1), border_mode='valid',
 
     if dim_ordering == 'tf':
         pool_out = pool_out.transpose((0, 2, 3, 1))
+    pool_out = npwrapper(pool_out)
     return pool_out
 
 
@@ -593,7 +655,7 @@ def spatial_2d_cropping_4specify(x, cropping=(1, 1, 1, 1), dim_ordering='th'):
                         input_shape[2] -     cropping[0] -  cropping[2],
                         input_shape[3] -     cropping[1] -  cropping[3]]
 
-        output = T.zeros(output_shape)
+        output = np.zeros(output_shape)
         indices = (slice(None),
                    slice(None),
                    slice(cropping[0], output_shape[2] + cropping[0]),
@@ -604,14 +666,17 @@ def spatial_2d_cropping_4specify(x, cropping=(1, 1, 1, 1), dim_ordering='th'):
                         input_shape[1]  -     cropping[0] -  cropping[2],
                         input_shape[2]  -     cropping[1] -  cropping[3],
                         input_shape[3])
-        output = T.zeros(output_shape)
+        output = np.zeros(output_shape)
         indices = (slice(None),
                    slice(cropping[0], output_shape[1] + cropping[0]),
                    slice(cropping[1], output_shape[2] + cropping[1]),
                    slice(None))
     else:
         raise Exception('Invalid dim_ordering: ' + dim_ordering)
-    return set_subtensor(output[0::,0::,0::,0::], x[indices])
+    
+    output[0::,0::,0::,0::] = x[indices]
+    output = npwrapper(output)
+    return output
 
 
 def spatial_2d_padding_4specify(x, padding=(1, 1,1,1), dim_ordering='th'):
@@ -626,7 +691,7 @@ def spatial_2d_padding_4specify(x, padding=(1, 1,1,1), dim_ordering='th'):
                         input_shape[1],
                         input_shape[2] +     padding[0] + padding[2],
                         input_shape[3] +     padding[1] + padding[3])
-        output = T.zeros(output_shape)
+        output = np.zeros(output_shape)
         indices = (slice(None),
                    slice(None),
                    slice(padding[0], input_shape[2] + padding[0]),
@@ -637,14 +702,16 @@ def spatial_2d_padding_4specify(x, padding=(1, 1,1,1), dim_ordering='th'):
                         input_shape[1] + padding[0] + padding[2],
                         input_shape[2] + padding[1] + padding[3],
                         input_shape[3])
-        output = T.zeros(output_shape)
+        output = np.zeros(output_shape)
         indices = (slice(None),
                    slice(padding[0], input_shape[1] + padding[0]),
                    slice(padding[1], input_shape[2] + padding[1]),
                    slice(None))
     else:
         raise Exception('Invalid dim_ordering: ' + dim_ordering)
-    return set_subtensor(output[indices], x)
+    output[indices] = x
+    output = npwrapper(output)
+    return output
     
 def scan(fn,
          sequences=None,
@@ -774,11 +841,11 @@ def scan(fn,
             mintap = np.min(seq['taps'])
             maxtap = np.max(seq['taps'])
             
-            maxtap_proxy = max(maxtap, 0)
-            mintap_proxy = min(mintap, 0)
+            maxtap_proxy = np.max((maxtap, 0))
+            mintap_proxy = np.min((mintap, 0))
 
             this_length = seq['input'].shape[0] - abs(maxtap_proxy) - abs(mintap_proxy)
-            actual_looping_size = min(actual_looping_size, this_length)
+            actual_looping_size = np.min((actual_looping_size, this_length))
 
             for k in seq['taps']:           
                 actual_slice = seq['input'][k - mintap]
@@ -1083,8 +1150,8 @@ def scan(fn,
             
             if init_out.get('taps', None):
                 this_taps = init_out['taps']
-                min_tap = min(this_taps)
-                max_tap = max(this_taps)
+                min_tap = np.min(this_taps)
+                max_tap = np.max(this_taps)
                 this_tensor = outputful_tensor[loop_ind:loop_ind+abs(min_tap)]
 
                 #now we have a subtensor at current cursor.

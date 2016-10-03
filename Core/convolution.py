@@ -59,14 +59,14 @@ def conv2dlayer(tparams,x, options, nb_filter, nb_row, nb_col, prefix='conv',
             raise Exception('Invalid dim_ordering: ' + dim_ordering)
     
     activation_func = activations.get(activation) 
-    if build_or_not(module_identifier, options) and W_regularizer:
-        W_regularizer.set_param(tparams[get_name(prefix,'W')])
-        thismodule.regularizers.append(W_regularizer)
+    if build_or_not(module_identifier, options):
+        if W_regularizer:
+            W_regularizer.set_param(tparams[get_name(prefix,'W')])
+            thismodule.regularizers.append(W_regularizer)
+        if b_regularizer:
+            b_regularizer.set_param(tparams[get_name(prefix,'b')])
+            thismodule.regularizers.append(b_regularizer)
 
-    if build_or_not(module_identifier, options) and b_regularizer:
-        b_regularizer.set_param(tparams[get_name(prefix,'b')])
-        thismodule.regularizers.append(b_regularizer)
-    
     if dim_ordering == 'th':
         stack_size = input_shape[1]
         W_shape = (nb_filter, stack_size, nb_row, nb_col)
@@ -107,13 +107,12 @@ def Convolution2D(options, nb_filter, nb_row, nb_col, prefix='conv',
         module_identifier = get_layer_identifier(prefix)
         if build_or_not(module_identifier, options):
             init_LayerInfo(options, name = module_identifier)
-
-            input_shape = x._keras_shape
-            tmp_params = init_conv2dlayer(options, tmp_params, input_shape, nb_filter, nb_row, nb_col,prefix=prefix,
-                        init=init,dim_ordering= dim_ordering,bias=bias, trainable=trainable)
-        update_or_init_params(tparams, params, tmp_params=tmp_params)
         
-        output = conv2dlayer(tparams, x, options, nb_filter, nb_row, nb_col, prefix=prefix, 
+        input_shape = x._keras_shape
+        tmp_params = init_conv2dlayer(options, tmp_params, input_shape, nb_filter, nb_row, nb_col,prefix=prefix,
+                    init=init,dim_ordering= dim_ordering,bias=bias, trainable=trainable)
+        update_or_init_params(tparams, params, tmp_params=tmp_params)
+        output = conv2dlayer(tparams, x, options, nb_filter, nb_row, nb_col, prefix=prefix,
                             border_mode=border_mode,subsample=subsample, dim_ordering= dim_ordering,
                             activation=activation, W_regularizer=W_regularizer, b_regularizer=b_regularizer, 
                             activity_regularizer=activity_regularizer,W_constraint=W_constraint,
@@ -155,6 +154,7 @@ def MaxPooling2D(pool_size=(2,2), strides=(2,2), border_mode='same', dim_orderin
                 
         output = T.pool2d(inputs, pool_size, strides,
                           border_mode, dim_ordering, pool_mode='max')
+
         output._keras_shape = get_output_shape_for(input_shape)
         return output
     return func

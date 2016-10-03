@@ -124,10 +124,9 @@ def Embedding(options, prefix='embeding',input_dim=None,
         module_identifier = get_layer_identifier(prefix)
         if build_or_not(module_identifier, options):
             init_LayerInfo(options, name = module_identifier)
-            input_shape = inputs._keras_shape
-            
-            tmp_params = init_embeding(options, tmp_params, prefix=prefix,input_dim=input_dim,
-                                    output_dim=output_dim, init=init,trainable=trainable)
+        #input_shape = inputs._keras_shape    
+        tmp_params = init_embeding(options, tmp_params, prefix=prefix,input_dim=input_dim,
+                                output_dim=output_dim, init=init,trainable=trainable)
         update_or_init_params(tparams, params, tmp_params=tmp_params)
         
         output = embeding_layer(tparams, inputs,options, dropoutrate=dropoutrate,
@@ -180,8 +179,8 @@ def Dense(options, prefix='ff', nin=None, nout=None,
             init_LayerInfo(options, name = module_identifier)
             #print tmpDict['nin'], ',', nout
             #print inputs._keras_shape
-            tmp_params = init_fflayer(options, tmp_params, prefix=prefix, nin=tmpDict['nin'], 
-                                    nout=nout,init=init,trainable=trainable, module_identifier = module_identifier)
+        tmp_params = init_fflayer(options, tmp_params, prefix=prefix, nin=tmpDict['nin'], 
+                                nout=nout,init=init,trainable=trainable, module_identifier = module_identifier)
         update_or_init_params(tparams, params, tmp_params=tmp_params)
             
         output = fflayer(tparams, inputs, options, prefix=prefix, activation= activation, **kwargs)

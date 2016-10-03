@@ -1,0 +1,63 @@
+The nuclei show signs of ____ pleomorphism.	0		0
+____ pleomorphism is present in the nuclei.	0		0
+____ pleomorphism is present.	0		0
+There is ____ pleomorphism in the nuclei.	0		0
+____ pleomorphism of the nuclei can be seen.	0		0
+The nuclei exhibit ____ pleomorphism.	0		0
+The nuclei are pleomorphic to a ____ degree.	0		0
+____ pleomorphism is present in the nuclei.	0		0
+____ pleomorphism is present.	0		0
+____ pleomorphism of the nuclei can be seen.	0		0
+The nuclei appear normal.	0	0	0
+The nuclei are normal in shape and size.	0	0	0
+There are no signs of pleomorphism in the nuclei.	0	0	0
+The pictured nuclei appear normal.	0	0	0
+The nuclei appear normal, with no signs of pleomorphism.	0	0	0
+Pleomorphism is not present.	0	0	0
+Not enough nuclei are pictured to determine the state of pleomorphism.	0	4	0
+There are not enough nuclei to determine the state of pleomorphism.	0	4	0
+There is ____ crowding.	1		0
+____ nuclear crowding is present.	1		0
+There is a ____ degree of crowding.	1		0
+____ crowding of the nuclei can be seen.	1		0
+The nuclei are crowded to a ____ degree.	1		0
+Pictured nuclei exhibit ____ crowding.	1		0
+There is ____ crowding of nuclei present.	1		0
+There are no signs of crowding in the nuclei.	1	0	0
+Nuclei crowding appears normal.	1	0	0
+Nuclear crowding is not present.	1	0	0
+Not enough nuclei are pictured to determine the state of crowding.	1	4	0
+There are not enough nuclei to determine the state of crowding.	1	4	0
+Polarity is ____ lost.	2		1
+Polarity of nuclei is ____ lost.	2		1
+Polarity along the basement membrane is ____ lost.	2		1
+Basement membrane polarity is ____ lost.	2		1
+The nuclei along the basement membrane retain a normal polarity.	2	0	0
+The nuclei retain a normal  polarity.	2	0	0
+There is no loss of polarity.	2	0	0
+Not enough basement membrane is pictured to determine the state of polarity.	2	3	0
+There is not enough basement membrane to determine the state of polarity.	2	3	0
+Mitosis appears to be ____.	3		0
+Mitosis is ____.	3		0
+Mitosis is ____ throughout the tissue.	3		0
+Mitotic figures are ____.	3		0
+There are ____ mitotic figures throughout the tissue.	3		1
+____ mitosis is present.	3		0
+There is very little mitotic activity.	3	0	0
+Not enough urothelial tissue is pictured to determine the frequency of mitosis.	3	3	0
+There is not enough urothelial tissue to determine the frequency of mitosis.	3	3	0
+The nucleoli are mostly ____.	4		0
+The nuclei have ____ nucleoli.	4		0
+The nucleoli of nuclei are ____.	4		0
+Coarse chromatin reveals prominent nucleoli.	4	1	0
+Chromatin is fine with nucleoli absent.	4	0	0
+There are not enough nuclei to determine the visibility of nucleoli.	4	2	0
+Not enough nuclei are pictured to determine the visibility of nucleoli.	4	2	0
+The nuclei are ____ pleomorphic.	0		1
+The nuclei appear ____ pleomorphic.	0		1
+Some of the nuclei are ____ pleomorphic.	0		1
+The nuclei appear ____ pleomorphic.	0		1
+The nuclei are ____ pleomorphic.	0		1
+Pictured nuclei are ____ pleomorphic.	0		1
+Nuclei are ____ crowded together.	1		1
+The nuclei are ____ crowded.	1		1

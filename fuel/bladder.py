@@ -73,6 +73,32 @@ def prepare_data(caps, features, worddict, maxlen=None, n_words=1000, zero_pad=F
 
     return npwrapper(caps_x), npwrapper(caps_mask), npwrapper(feat)
 
+from Extractor import ListExtractor as dataExtractor
+import cPickle
+
+def get_anno(classparams, filepath = None, chunknum = 5000, batchsize=32, get_img=True):
+    StruExtractor = dataExtractor(classparams)
+    datainfo = StruExtractor.datainfo
+    Totalnum = datainfo['Totalnum']
+    
+    totalIndx = np.arange(Totalnum)
+    numberofchunk = (Totalnum + chunknum - 1)// chunknum   # the floor
+    chunkstart = 0 
+    
+    thisanno = [None for _ in range(chunknum)]
+    Total_anno = []
+    for chunkidx in range(numberofchunk):
+        thisnum = min(chunknum, Totalnum - chunkidx*chunknum)
+        thisInd = totalIndx[chunkstart: chunkstart + thisnum]
+        chunkstart += thisnum
+
+        StruExtractor.getImg_Anno(thisInd, thisbatch[0:thisnum], thisanno, get_img=False)
+        Total_anno.extend(thisanno[0:thisnum])
+    if filepath is not None:
+        with open(filepath, 'wb') as f:
+            cPickle.dump(Total_anno, f,protocol=cPickle.HIGHEST_PROTOCOL)
+    return Total_anno
+    
 def group_cap(cap):
     returned_cap = []
     orderedCap = OrderedDict()
@@ -90,7 +116,6 @@ def group_cap(cap):
 def load_data(load_train=True, load_dev= True, load_test= False, root_path='../Data/TrainingData/bladder', 
               img_ext='.png', online_feature=False):
     ''' Loads the dataset
-
     :type dataset: string
     :param dataset: the path to the dataset
     '''
@@ -102,12 +127,42 @@ def load_data(load_train=True, load_dev= True, load_test= False, root_path='../D
 
     feat_len = 512*14*14
     train_cap = []
-    if load_train:
-        
-        #path = os.path.join(root_path, 'feat_conv')
-        with open(os.path.join(cap_root_path , 'bladder_align_train_cap.pkl'), 'rb') as ft_cap:
+
+    train_cap_pkl = os.path.join(cap_root_path , 'bladder_align_train_cap.pkl')
+
+    classparams = {}
+    classparams['datadir']   =  trainingimagefolder
+    classparams['annodir']  =   annodir
+    classparams['dataExt']   =  ['.png']             # the data ext
+    classparams['nameList']  =  train_file_list
+    classparams['labelList'] =  train_label_list 
+    classparams['destin_shape']   =  (224,224) 
+    classparams['channel']   =  img_channels
+
+
+    training_classparams = classparams.copy()
+    if not os.exists(train_cap_pkl):
+        with open(trainingSplitFile) as data_file:    
+            trainingSplitDict = json.load(data_file)
+            train_file_list =  trainingSplitDict['img']
+        training_classparams['nameList']  =  train_file_list
+        get_anno(training_classparams, saveFolder=cap_root_path, filename='bladder_align_train_cap.pkl',
+                 chunknum = 5000, batchsize=32, get_img=False)
+    
+    testing_classparams = classparams.copy()
+    if not os.exists(train_cap_pkl):
+        with open(trainingSplitFile) as data_file:    
+            testingSplitDict = json.load(data_file)
+            test_file_list =  testingSplitDict['img']
+        testing_classparams['nameList']  =  test_file_list
+        get_anno(training_classparams, saveFolder=cap_root_path, filename='bladder_align_test_cap.pkl',
+                 chunknum = 5000, batchsize=32, get_img=False)
+
+
+    if load_train:    
+        with open(train_cap_pkl, 'rb') as ft_cap:
             train_cap = pkl.load(ft_cap)
-        returned_train_cap = train_cap #group_cap(train_cap)
+            returned_train_cap = train_cap #group_cap(train_cap)
 
         if online_feature == False:
             feat_root_path = cap_root_path
@@ -122,22 +177,9 @@ def load_data(load_train=True, load_dev= True, load_test= False, root_path='../D
                     #train_feature_list.append(pkl.load(ft_feat).todense())
                     thistemp = pkl.load(ft_feat)
                     train_feat =  sparse.vstack((train_feat, thistemp))
-                    current = current + thistemp.shape[0]
-                    
+                    current = current + thistemp.shape[0]       
             assert current == len(returned_train_cap)
         else:
-            # in this case, the train_feat will be absolute image path
-            feat_root_path = img_root_path
-            trainingSplitFile = os.path.join(root_path, 'train_list.json')
-            with open(trainingSplitFile) as data_file:    
-                trainingSplitDict = json.load(data_file)
-            
-            train_file_list =  trainingSplitDict['img']
-            train_file_list = train_cap[2]
-
-            # with open(trainingSplitFile) as data_file:    
-            #     trainingSplitDict = json.load(data_file)
-            # train_label_list = trainingSplitDict['label']
             train_feat = []
             for cap_tuple in returned_train_cap:
                 name = cap_tuple[2]
@@ -162,10 +204,6 @@ def load_data(load_train=True, load_dev= True, load_test= False, root_path='../D
             returned_test_cap = group_cap(test_cap)
             
         else:     
-            # testingSplitFile = os.path.join(root_path, 'test_list.json')
-            # with open(testingSplitFile) as data_file:    
-            #     testingSplitDict = json.load(data_file)
-            # test_file_list =  testingSplitDict['img']
             test_feat = []
             for cap_tuple in returned_test_cap:
                 name = cap_tuple[2]
@@ -192,10 +230,6 @@ def load_data(load_train=True, load_dev= True, load_test= False, root_path='../D
                     thistemp = pkl.load(ft_feat)
                     valid_feat =  sparse.vstack((valid_feat, thistemp))
         else:
-            # validSplitFile = os.path.join(root_path, 'test_list.json')
-            # with open(validSplitFile) as data_file:    
-            #     validSplitDict = json.load(data_file)
-            # valid_file_list =  validSplitDict['img']
             valid_feat = []
             for cap_tuple in returned_valid_cap:
                 name = cap_tuple[2]
@@ -206,23 +240,23 @@ def load_data(load_train=True, load_dev= True, load_test= False, root_path='../D
     else:
         valid = None
     
-    with open(os.path.join(cap_root_path,'dictionary.pkl'), 'rb') as f:
-        worddict = pkl.load(f)
+    #with open(os.path.join(cap_root_path,'dictionary.pkl'), 'rb') as f:
+    #    worddict = pkl.load(f)
 
-#    worddict = OrderedDict()
-#    worddict['<eos>'] = 0
-#    worddict['UNK'] = 1
-#    wordIndex = 2
-#
-#    total_cap= train_cap + test_cap + valid_cap
-#    for this_keys in total_cap:
-#        words = split_words(this_keys[0])
-#        for k in words:
-#            if k not in worddict:
-#                worddict[k] = wordIndex
-#                wordIndex = wordIndex + 1
-#
-#    with open(os.path.join(path,'dictionary.pkl'), 'wb') as f:
-#        pkl.dump(worddict, f, protocol=pkl.HIGHEST_PROTOCOL)
+    worddict = OrderedDict()
+    worddict['<eos>'] = 0
+    worddict['UNK'] = 1
+    wordIndex = 2
+
+    total_cap= train_cap + test_cap + valid_cap
+    for this_keys in total_cap:
+        words = split_words(this_keys[0])
+        for k in words:
+            if k not in worddict:
+                worddict[k] = wordIndex
+                wordIndex = wordIndex + 1
+
+    with open(os.path.join(path,'dictionary.pkl'), 'wb') as f:
+        pkl.dump(worddict, f, protocol=pkl.HIGHEST_PROTOCOL)
 
     return train, valid, test, worddict

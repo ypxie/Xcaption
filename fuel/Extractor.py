@@ -20,23 +20,24 @@ import json
 class ListExtractor(object):
     def __init__(self, initial_data):
         self.datadir = "" 
+        self.annodir = None
         self.dataExt =   [".jpg",'.tif']   
-        self.nameList = []  # should only contains image name with extension
+        self.nameList = []  # should only contains image name without extension
         self.labelList = [] # should be one-hot coding or simply a list of int
         self.local_norm = True
         self.destin_shape = None
-        self.datainfo = None
-        self.annodir = None
+        self.datainfo = None     
         self.annoExt = '.json'
         self.anno_count = 0
         for key in initial_data:
             setattr(self, key,initial_data[key])
         
-        self.nb_sample = len(self.labelList)   
-        if type(self.labelList[0]) is list:
-            self.nb_class = len(self.labelList[0])
-        else:
-            self.nb_class = max(self.labelList)
+        self.nb_sample = len(self.nameList)   
+        if len(self.labelList) != 0:
+            if type(self.labelList[0]) is list:
+                self.nb_class = len(self.labelList[0])
+            else:
+                self.nb_class = max(self.labelList)
         
         super(ListExtractor, self).__init__(initial_data)
         self.getMatinfo()
@@ -74,8 +75,7 @@ class ListExtractor(object):
                    img = imread(thispath)
                    valid = True
                    break
-            if valid:
-          
+            if valid:   
                 img  = pre_process_img(img, yuv = False,norm=self.local_norm)
                 if self.destin_shape is not None:
                     shape = tuple(self.destin_shape) + (img.shape[2],)
@@ -91,10 +91,10 @@ class ListExtractor(object):
 
     
         
-    def getImg_Anno(self,thisRandIndx=None, thisbatch=None, thisanno=None):
+    def getImg_Anno(self,thisRandIndx=None, thisbatch=None, thisanno=None, get_img = True):
         if thisRandIndx is None:
             thisRandIndx = np.arange(0, len(self.nameList))
-        if thisbatch is None:
+        if thisbatch is None and get_img:
             if self.datainfo is None:
                 self.getMatinfo()
             thisbatch = np.zeros((self.datainfo['Totalnum'],) + self.datainfo['inputshape']) 
@@ -108,22 +108,24 @@ class ListExtractor(object):
                 thisfile = thisname + imgExt
                 thispath = os.path.join(self.datadir, thisfile)
                 if os.path.isfile(thispath):
-                   valid = True
-                   break
-            if valid: 
-                         
+                    valid = True
+                    break
+            if  valid:    
                 if self.destin_shape is not None:
                     shape = tuple(self.destin_shape) + (img.shape[2],)
-                img = get_cnn_img(thispath,shape, self.local_norm)  
+                if get_img:
+                    img = get_cnn_img(thispath,shape, self.local_norm)  
+                    thisbatch[thisnum,...] = img
 
-                thisbatch[thisnum,...] = img
                 cap_tuple = (self._get_parse_anno(thisname), self.anno_count, thisname)
                 self.anno_count += 1
                 thisanno[thisnum]= cap_tuple
                 thisnum += 1
             else:
                 print('Image: {s} not find'.format(s = thisname))
+        
         return thisbatch, thisanno
+        
     def _get_parse_anno(self, thisname):
         thisfile = thisname + self.annoExt
         thispath = os.path.join(self.annodir, thisfile)

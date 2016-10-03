@@ -19,6 +19,7 @@ from fuel import datasets
 from Core.engine import *
 #from Core.original_optimizer import adadelta, adam, rmsprop, sgd
 from Core.optimizers import *
+from Core.utils_func import expand_list
 
 if not 'homogeneous_data' in os.environ:
     os.environ['homogeneous_data'] == 'True'
@@ -125,7 +126,7 @@ def print_generated_sample(generate_sample_params, ctx_s, truth = None, minSampl
     '''
     ctx_s: nsample*slot*dim
     truth: time_step * nsample * 1
-    '''
+    ''' 
     tparams = generate_sample_params.tparams 
     gen_sample = generate_sample_params.gen_sample 
     f_init = generate_sample_params.f_init
@@ -137,7 +138,6 @@ def print_generated_sample(generate_sample_params, ctx_s, truth = None, minSampl
     beam_k = generate_sample_params.beam_k
     maxlen = generate_sample_params.maxlen
     
- 
     minSample = len(ctx_s) if minSample is None else minSample
     # generate and decode a subset of the current training batch
     sample_rand_Ind = range(len(ctx_s))
@@ -205,11 +205,9 @@ def BUILD_MODEL(tparams, params, model_options):
             featSource = npwrapper(featSource)
 
             # the following is for sampling
-            ctx_2d = T.npwrapper(featSource[0]) 
+            featSource_3d = T.npwrapper(featSource[0])
             x_1d = T.npwrapper(x[0,0:1])
-            mask_1d = T.npwrapper(mask[0,0:1]) 
-
-
+            mask_1d = T.npwrapper(mask[0,0:1])
             break
     else:
         # description string: #words x #samples,
@@ -219,23 +217,15 @@ def BUILD_MODEL(tparams, params, model_options):
             featSource  = T.placeholder(shape=(None, None, model_options['ctx_dim']), name='ctx')
         x = T.placeholder(ndim=2, name='x', dtype='int64')
         mask = T.placeholder(ndim=2, name='mask')
-        # context: #samples x #annotations x dim
-        
-        
+
         # the following is for sampler
-        ctx_2d = T.placeholder(shape=(None,model_options['ctx_dim']), name= 'ctx_sampler')
-        x_1d = T.placeholder(ndim=1, name = 'x_sampler', dtype='int64')
-        mask_1d = T.placeholder(ndim=1, name = 'mask_sampler', dtype='int64')
-
-        init_state = [T.placeholder(ndim=2, name='init_state')]
-        init_memory = [T.placeholder(ndim=2, name='init_memory')]
-        init_alpha = [T.placeholder(ndim=2, name='init_alpha')]
-
-        if model_options['n_layers_lstm'] > 1:
-            for lidx in xrange(1, options['n_layers_lstm']):
-                init_state.append(T.placeholder(ndim=2, name='init_state_' + str(lidx)))
-                init_memory.append(T.placeholder(ndim=2, name='init_memory_' + str(lidx))) 
-                init_alpha.append(T.placeholder(ndim=2, name='init_alpha_' + str(lidx))) 
+        if model_options['online_feature'] == True:
+            featSource_3d  = T.placeholder(shape=(3, None, None), name='ctx_sampler') 
+        else:
+            featSource_3d = T.placeholder(shape=(None,model_options['ctx_dim']), name= 'ctx_sampler')
+        #ctx_2d = T.placeholder(shape=(None,model_options['ctx_dim']), name= 'ctx_sampler')
+        x_1d = T.placeholder(ndim=1, name = 'x_sampler', dtype='int64')  # only have sample *1
+        mask_1d = T.placeholder(ndim=1, name = 'mask_sampler', dtype='int64') #only have sample * 1
 
     import time
     time_start = time.time()          
@@ -257,9 +247,8 @@ def BUILD_MODEL(tparams, params, model_options):
     # words and also the new "initial state/memory" see equation
     print 'Buliding sampler'
 
-    (init_outputs, f_init_clousure), (next_outputs, f_next_clousure) = \
-    build_sampler(tparams, model_options, rng, x_1d, ctx_2d,  sampling=True, dropoutrate = 0.5,allow_input_downcast=True)
-
+    (init_inputs, init_outputs, f_init_clousure), (next_inputs, next_outputs, f_next_clousure) = \
+    build_sampler(tparams, model_options, rng, x_1d, featSource_3d,  sampling=True, dropoutrate = 0.5,allow_input_downcast=True)
 
     # init_outputs , f_init_clousure= build_init(tparams, model_options,  rng, ctx_2d)
     # init_values = init_outputs[1:]
@@ -268,10 +257,9 @@ def BUILD_MODEL(tparams, params, model_options):
     
     print('Start building sampler function!')
     if os.environ['debug_mode'] == 'False':
-        f_init = T.function([ ctx_2d, T.learning_phase()], init_outputs,  allow_input_downcast=True,on_unused_input='ignore')
-        ctx_encoded = init_outputs[0]
-        init_values = init_outputs[1:]
-        f_next = T.function([x_1d, ctx_encoded, T.learning_phase()] + init_values, next_outputs, allow_input_downcast=True,on_unused_input='ignore')
+        f_init = T.function(init_inputs, init_outputs,  allow_input_downcast=True,on_unused_input='ignore')
+
+        f_next = T.function(next_inputs, next_outputs, allow_input_downcast=True,on_unused_input='ignore')
 
     else:
         f_init =  f_init_clousure
@@ -306,10 +294,12 @@ def BUILD_MODEL(tparams, params, model_options):
         cost += weight_decay
     
     # Doubly stochastic regularization
+    interv = model_options['num_attention']
     if alpha_c > 0.:
         alpha_c = T.variable(np.float32(alpha_c), name='alpha_c')
-        alpha_reg = alpha_c * ((1.-alphas.sum(0))**2).sum(0).mean()
-        cost += alpha_reg
+        for alp in alphas:
+            alpha_reg = alpha_c/interv * ((1.-alp.sum(0))**2).sum(0).mean()
+            cost += alpha_reg
 
     hard_attn_updates = []
     # Backprop!
@@ -321,18 +311,20 @@ def BUILD_MODEL(tparams, params, model_options):
         baseline_time = T.variable(np.float32(0.), name='baseline_time')
         opt_outs['baseline_time'] = baseline_time
         alpha_entropy_c = T.variable(np.float32(alpha_entropy_c), name='alpha_entropy_c')
-        alpha_entropy_reg = alpha_entropy_c * (alphas*T.log(alphas)).mean()
+        #alpha_entropy_reg = alpha_entropy_c * (alphas*T.log(alphas)).mean()
         # [see Section 4.1: Stochastic "Hard" Attention for derivation of this learning rule]
-        if model_options['RL_sumCost']:
-            grads = T.grad(cost, wrt=itemlist(trainable_param),
-                                 disconnected_inputs='raise',
-                                known_grads={alphas:(baseline_time-opt_outs['masked_cost'].mean(0))[None,:,None]/10.*
-                                            (-alphas_sample/(alphas+0.00000001)) + alpha_entropy_c*(T.log(alphas+0.00000001) + 1)})
-        else:
-            grads = T.grad(cost, wrt=itemlist(trainable_param),
-                            disconnected_inputs='raise',
-                            known_grads={alphas:opt_outs['masked_cost'][:,:,None]/10.*
-                            (alphas_sample/(alphas+0.00000001)) + alpha_entropy_c*(T.log(alphas+0.00000001) + 1)})
+        known_grads = {}
+        for alp,alp_sam in zip(alphas,alphas_sample):
+            if model_options['RL_sumCost']:
+                known_grads[alp] = (baseline_time-opt_outs['masked_cost'].mean(0))[None,:,None]/10.* \
+                                            (-alp_sam/(alp+0.00000001)) + alpha_entropy_c*(T.log(alp+0.00000001) + 1)
+            else:
+                known_grads[alp] = opt_outs['masked_cost'][:,:,None]/10.* \
+                                (alp_sam/(alp+0.00000001)) + alpha_entropy_c*(T.log(alp+0.00000001) + 1)
+
+        grads = T.grad(cost, wrt=itemlist(trainable_param),
+                        disconnected_inputs='raise',
+                        known_grads=known_grads)
         # [equation on bottom left of page 5]
         hard_attn_updates += [(baseline_time, baseline_time * 0.9 + 0.1 * opt_outs['masked_cost'].mean())]
         # updates from scan
@@ -350,37 +342,20 @@ def BUILD_MODEL(tparams, params, model_options):
     updates = hard_attn_updates + training_updates
 
     f_train = T.function(inps,cost, updates=updates,on_unused_input='warn',allow_input_downcast=True)
-    
-    #    if options['debug'] == 0:
-    #        import theano
-    #        theano.printing.pydotprint(f_train, outfile='aa.png',with_ids=True,return_image=False, format='png')
-    #        from IPython.display import SVG
-    #        SVG(theano.printing.pydotprint(f_train, return_image=True,
-    #                                       format='svg'))
-    #lr = T.scalar(name='lr')    
-    #f_grad_shared, f_update = eval(optimizer)(lr, trainable_param, grads, inps, cost, hard_attn_updates)
 
     total_time = time.time() - time_start
     print "Building Model takes {}".format(total_time)
     return f_train, f_init, f_next, f_log_probs,[rng,use_noise, alphas, alphas_sample]
 
-"""Note: all the hyperparameters are stored in a dictionary model_options (or options outside train).
-   train() then proceeds to do the following:
-       1. The params are initialized (or reloaded)
-       2. The computations graph is built symbolically using Theano.
-       3. A cost is defined, then gradient are obtained automatically with tensor.grad :D
-       4. With some helper functions, gradient descent + periodic saving/printing proceeds
-"""
 def train(dim_word=100,  # word vector dimensionality
-          ctx_dim=512,  # context vector dimensionality
+          ctx_dim_list=[512,256,128],  # context vector dimensionality
           project_context = True,
           proj_ctx_dim = 512, # projected context vector dimensionality
           dim=1000,  # the number of LSTM units
           shift_range = 3, # how many shift for ntm memory location
           attn_type='stochastic',  # [see section 4 from paper]
           addressing= "softmax",  #addressing types
-          k_activ = "tanh",# only used for ntm addressing for generating key
-          atten_num = 196,  # number of attention positions
+          k_activ = "elu",# only used for ntm addressing for generating key
           n_layers_att=1,  # number of layers used to compute the attention weights
           n_layers_out=1,  # number of layers used to compute logit
           n_layers_lstm=1,  # number of lstm layers
@@ -414,12 +389,16 @@ def train(dim_word=100,  # word vector dimensionality
           use_dropout= 0.5,  # setting this true turns on dropout at various points
           lstm_dropout= None,  # dropout on lstm gates
           reload=False,
-          hard_sampling = True,
-          online_feature = True,
+          hard_sampling = False,
+          online_feature = False,
+          max_layer = None,
+          keras_model_path = '',
+          train_feat_encoder = False,
           save_per_epoch=False, print_training = True,print_validation=True, 
           clipvalue=0, clipnorm=0,**kwargs): # this saves down the model every epoch
 
     # hyperparam dict
+    num_attention = len(ctx_dim_list)
     model_options = locals().copy()
     options = model_options
     model_options = validate_options(model_options)
@@ -433,9 +412,14 @@ def train(dim_word=100,  # word vector dimensionality
     tparams =  OrderedDict()
     params = OrderedDict()
     #params = init_params(model_options)
+    if reload and os.path.exists(keras_model_path):
+        print "Reloading keras img model"
+        params = load_keras_model(params, keras_model_path, max_layer = max_layer)
+
     if reload and os.path.exists(saveto):
         print "Reloading model"
         params = load_params(saveto, params)
+    
     #tparams = init_tparams(params)
 
 
